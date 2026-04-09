@@ -88,6 +88,7 @@ type processOptions struct {
 	DefaultResponse         string              // Response when LLM returns empty
 	EnableSummary           bool                // Whether to trigger summarization
 	SendResponse            bool                // Whether to send response via bus
+	AllowInterimPicoPublish bool                // Whether pico tool-call interim text can be published when SendResponse is false
 	SuppressToolFeedback    bool                // Whether to suppress inline tool feedback messages
 	NoHistory               bool                // If true, don't load session history (for heartbeat)
 	SkipInitialSteeringPoll bool                // If true, skip the steering poll at loop start (used by Continue)
@@ -1398,18 +1399,19 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		})
 
 	opts := processOptions{
-		SessionKey:        sessionKey,
-		Channel:           msg.Channel,
-		ChatID:            msg.ChatID,
-		MessageID:         msg.MessageID,
-		ReplyToMessageID:  inboundMetadata(msg, metadataKeyReplyToMessage),
-		SenderID:          msg.SenderID,
-		SenderDisplayName: msg.Sender.DisplayName,
-		UserMessage:       msg.Content,
-		Media:             msg.Media,
-		DefaultResponse:   defaultResponse,
-		EnableSummary:     true,
-		SendResponse:      false,
+		SessionKey:              sessionKey,
+		Channel:                 msg.Channel,
+		ChatID:                  msg.ChatID,
+		MessageID:               msg.MessageID,
+		ReplyToMessageID:        inboundMetadata(msg, metadataKeyReplyToMessage),
+		SenderID:                msg.SenderID,
+		SenderDisplayName:       msg.Sender.DisplayName,
+		UserMessage:             msg.Content,
+		Media:                   msg.Media,
+		DefaultResponse:         defaultResponse,
+		EnableSummary:           true,
+		SendResponse:            false,
+		AllowInterimPicoPublish: true,
 	}
 
 	// context-dependent commands check their own Runtime fields and report
@@ -2253,7 +2255,7 @@ turnLoop:
 		}
 		logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-		if al.bus != nil && ts.channel == "pico" && len(response.ToolCalls) > 0 {
+		if al.bus != nil && ts.channel == "pico" && len(response.ToolCalls) > 0 && ts.opts.AllowInterimPicoPublish {
 			if strings.TrimSpace(response.Content) != "" {
 				outCtx, outCancel := context.WithTimeout(turnCtx, 3*time.Second)
 				err := al.bus.PublishOutbound(outCtx, bus.OutboundMessage{
