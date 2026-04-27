@@ -37,15 +37,19 @@ type WebSocketServer struct {
 	token     string
 	conns     sync.Map // map[string]*Conn
 	logger    *slog.Logger
+
+	pendingMu       sync.Mutex
+	pendingControls map[string][]reef.Message // buffered control messages for disconnected clients
 }
 
 // NewWebSocketServer creates a WebSocket acceptor.
 func NewWebSocketServer(registry *Registry, scheduler *Scheduler, token string, logger *slog.Logger) *WebSocketServer {
 	return &WebSocketServer{
-		registry:  registry,
-		scheduler: scheduler,
-		token:     token,
-		logger:    logger,
+		registry:        registry,
+		scheduler:       scheduler,
+		token:           token,
+		logger:          logger,
+		pendingControls: make(map[string][]reef.Message),
 	}
 }
 
@@ -128,6 +132,15 @@ func (s *WebSocketServer) handshake(conn *Conn) error {
 		State:         reef.ClientConnected,
 	}
 	conn.registry.Register(info)
+
+	// Flush any pending control messages for this client
+	s.pendingMu.Lock()
+	pending := s.pendingControls[payload.ClientID]
+	delete(s.pendingControls, payload.ClientID)
+	s.pendingMu.Unlock()
+	for _, m := range pending {
+		conn.sendCh <- m
+	}
 
 	ack, _ := reef.NewMessage(reef.MsgRegisterAck, "", reef.RegisterAckPayload{
 		ClientID:   payload.ClientID,
@@ -270,9 +283,17 @@ func (s *WebSocketServer) handleMessage(c *Conn, msg reef.Message) {
 }
 
 // SendMessage sends a message to a specific client by ID.
+// If the client is disconnected, control messages are buffered for replay on reconnect.
 func (s *WebSocketServer) SendMessage(clientID string, msg reef.Message) error {
 	v, ok := s.conns.Load(clientID)
 	if !ok {
+		// Buffer control messages for disconnected clients
+		if isControlMessage(msg.MsgType) {
+			s.pendingMu.Lock()
+			s.pendingControls[clientID] = append(s.pendingControls[clientID], msg)
+			s.pendingMu.Unlock()
+			return nil
+		}
 		return fmt.Errorf("client %s not connected", clientID)
 	}
 	conn := v.(*Conn)
@@ -282,6 +303,14 @@ func (s *WebSocketServer) SendMessage(clientID string, msg reef.Message) error {
 	default:
 		return fmt.Errorf("client %s send buffer full", clientID)
 	}
+}
+
+func isControlMessage(mt reef.MessageType) bool {
+	switch mt {
+	case reef.MsgCancel, reef.MsgPause, reef.MsgResume:
+		return true
+	}
+	return false
 }
 
 // Broadcast sends a message to all connected clients.

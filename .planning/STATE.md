@@ -9,7 +9,8 @@ Milestone 1: v1 Distributed Swarm
 |-------|--------|---------|-----------|
 | 1: Swarm Protocol & Core Types | **Completed** | 2026-04-27 | 2026-04-27 |
 | 2: Reef Server | **Completed** | 2026-04-27 | 2026-04-27 |
-| 3: Reef Client & SwarmChannel | **In Progress** | 2026-04-27 | — |
+| 3: Reef Client & SwarmChannel | **Completed** | 2026-04-27 | 2026-04-27 |
+| 4: Task Lifecycle & Failure Handling | **In Progress** | 2026-04-27 | — |
 | 3: Reef Client & SwarmChannel | Not Started | — | — |
 | 4: Task Lifecycle & Failure Handling | Not Started | — | — |
 | 5: Role-based Skills & E2E Integration | Not Started | — | — |
