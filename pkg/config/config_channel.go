@@ -517,7 +517,7 @@ type SwarmSettings struct {
 	AdminAddr         string   `json:"admin_addr,omitempty"`          // Server mode: Admin HTTP listen address
 	MaxQueue          int      `json:"max_queue,omitempty"`           // Server mode
 	MaxEscalations    int      `json:"max_escalations,omitempty"`     // Server mode
-	WebhookURLs       []string `json:"webhook_urls,omitempty"`        // Server mode: escalation alert webhooks
+	WebhookURLs       []string `json:"webhook_urls,omitempty"`        // Server mode: escalation alert webhooks (legacy)
 	StoreType         string   `json:"store_type,omitempty"`          // Server mode: "memory" (default) or "sqlite"
 	StorePath         string   `json:"store_path,omitempty"`          // Server mode: SQLite database file path
 	TLSEnabled        bool     `json:"tls_enabled,omitempty"`         // Enable TLS for server/client
@@ -525,6 +525,21 @@ type SwarmSettings struct {
 	TLSKeyFile        string   `json:"tls_key_file,omitempty"`        // TLS key file
 	TLSCAFile         string   `json:"tls_ca_file,omitempty"`         // Custom CA certificate file
 	TLSSkipVerify     bool     `json:"tls_skip_verify,omitempty"`     // Skip TLS verification (dev only)
+	Notifications     []NotificationConfig `json:"notifications,omitempty"` // Notification channels
+}
+
+// NotificationConfig configures a notification channel.
+type NotificationConfig struct {
+	Type       string   `json:"type"`                  // "webhook" | "slack" | "smtp" | "feishu" | "wecom"
+	URL        string   `json:"url,omitempty"`         // Webhook URL
+	WebhookURL string   `json:"webhook_url,omitempty"` // Slack webhook URL
+	HookURL    string   `json:"hook_url,omitempty"`    // Feishu/WeCom webhook URL
+	SMTPHost   string   `json:"smtp_host,omitempty"`   // SMTP host
+	SMTPPort   int      `json:"smtp_port,omitempty"`   // SMTP port
+	From       string   `json:"from,omitempty"`        // SMTP from address
+	To         []string `json:"to,omitempty"`          // SMTP recipients
+	Username   string   `json:"username,omitempty"`     // SMTP username
+	Password   string   `json:"password,omitempty"`     // SMTP password
 }
 
 // BaseFieldNames are JSON keys that belong to Channel, not to channel-specific settings.

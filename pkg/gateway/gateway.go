@@ -877,6 +877,22 @@ func runReefServerMode(cfg *config.Config) error {
 		}
 	}
 
+	// Configure notifications
+	for _, nc := range settings.Notifications {
+		srvCfg.Notifications = append(srvCfg.Notifications, reefserver.NotificationConfig{
+			Type:       nc.Type,
+			URL:        nc.URL,
+			WebhookURL: nc.WebhookURL,
+			HookURL:    nc.HookURL,
+			SMTPHost:   nc.SMTPHost,
+			SMTPPort:   nc.SMTPPort,
+			From:       nc.From,
+			To:         nc.To,
+			Username:   nc.Username,
+			Password:   nc.Password,
+		})
+	}
+
 	srv := reefserver.NewServer(srvCfg, nil)
 	if err := srv.Start(); err != nil {
 		return fmt.Errorf("start reef server: %w", err)

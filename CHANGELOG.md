@@ -29,6 +29,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **TLSConfig struct** — Reusable TLS configuration with validation and cert loading
 - **TLS configuration fields** — `tls_enabled`, `tls_cert_file`, `tls_key_file`, `tls_ca_file`, `tls_skip_verify` in SwarmSettings
 
+### Added (Phase 3: Multi-channel Notifications)
+
+- **NotificationManager** — fans out alerts to multiple channels concurrently with fault isolation
+- **Notifier interface** — extensible notification channel abstraction
+- **WebhookNotifier** — HTTP POST notifications (migrated from legacy webhook)
+- **SlackNotifier** — Slack Incoming Webhook with Block Kit formatting
+- **SMTPNotifier** — HTML email alerts via SMTP
+- **FeishuNotifier** — Feishu (飞书) interactive card messages
+- **WeComNotifier** — WeCom (企业微信) Markdown messages
+- **Notification configuration** — `notifications` array in SwarmSettings with per-channel config
+- **8 notification tests** — Manager fanout, fault isolation, all channel types
+
 ## [0.2.0] — Reef v1.1
 
 ### Added

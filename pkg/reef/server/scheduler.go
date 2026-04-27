@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/sipeed/picoclaw/pkg/reef/server/notify"
 )
 
 // Scheduler matches tasks to available Clients and handles dispatch.
@@ -20,6 +22,7 @@ type Scheduler struct {
 
 	maxEscalations int
 	webhookURLs    []string
+	notifyManager  *notify.Manager
 	onDispatch     func(task *reef.Task, clientID string) error
 	onRequeue      func(task *reef.Task)
 }
@@ -29,6 +32,7 @@ type SchedulerOptions struct {
 	MaxEscalations int
 	WebhookURLs    []string
 	Logger         *slog.Logger
+	NotifyManager  *notify.Manager
 	OnDispatch     func(task *reef.Task, clientID string) error
 	OnRequeue      func(task *reef.Task)
 }
@@ -48,6 +52,7 @@ func NewScheduler(registry *Registry, queue Queue, opts SchedulerOptions) *Sched
 		tasks:          make(map[string]*reef.Task),
 		maxEscalations: opts.MaxEscalations,
 		webhookURLs:    opts.WebhookURLs,
+		notifyManager:  opts.NotifyManager,
 		onDispatch:     opts.OnDispatch,
 		onRequeue:      opts.OnRequeue,
 	}
@@ -233,7 +238,7 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		// Already in Failed state — no further transition.
 	case EscalationToAdmin:
 		_ = task.Transition(reef.TaskEscalated)
-		go sendWebhookAlert(s.logger, s.webhookURLs, WebhookPayload{
+		alert := notify.Alert{
 			Event:           "task_escalated",
 			TaskID:          task.ID,
 			Status:          string(task.Status),
@@ -243,8 +248,25 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 			AttemptHistory:  task.AttemptHistory,
 			EscalationCount: task.EscalationCount,
 			MaxEscalations:  s.maxEscalations,
-			Timestamp:       time.Now().UnixMilli(),
-		})
+			Timestamp:       time.Now(),
+		}
+		if s.notifyManager != nil {
+			go s.notifyManager.NotifyAll(context.Background(), alert)
+		} else {
+			// Fallback to legacy webhook
+			go sendWebhookAlert(s.logger, s.webhookURLs, WebhookPayload{
+				Event:           alert.Event,
+				TaskID:          alert.TaskID,
+				Status:          alert.Status,
+				Instruction:     alert.Instruction,
+				RequiredRole:    alert.RequiredRole,
+				Error:           alert.Error,
+				AttemptHistory:  alert.AttemptHistory,
+				EscalationCount: alert.EscalationCount,
+				MaxEscalations:  alert.MaxEscalations,
+				Timestamp:       alert.Timestamp.UnixMilli(),
+			})
+		}
 	}
 	s.mu.Unlock()
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/sipeed/picoclaw/pkg/reef/server/notify"
 	"github.com/sipeed/picoclaw/pkg/reef/server/store"
 )
 
@@ -28,6 +29,21 @@ type Config struct {
 	StoreType        string // "memory" (default) or "sqlite"
 	StorePath        string // SQLite database file path
 	TLS              *TLSConfig
+	Notifications    []NotificationConfig
+}
+
+// NotificationConfig configures a notification channel.
+type NotificationConfig struct {
+	Type       string   `json:"type"`                  // "webhook" | "slack" | "smtp" | "feishu" | "wecom"
+	URL        string   `json:"url,omitempty"`         // Webhook URL
+	WebhookURL string   `json:"webhook_url,omitempty"` // Slack webhook URL
+	HookURL    string   `json:"hook_url,omitempty"`    // Feishu/WeCom webhook URL
+	SMTPHost   string   `json:"smtp_host,omitempty"`   // SMTP host
+	SMTPPort   int      `json:"smtp_port,omitempty"`   // SMTP port
+	From       string   `json:"from,omitempty"`        // SMTP from address
+	To         []string `json:"to,omitempty"`          // SMTP recipients
+	Username   string   `json:"username,omitempty"`     // SMTP username
+	Password   string   `json:"password,omitempty"`     // SMTP password
 }
 
 // DefaultConfig returns a configuration with sensible defaults.
@@ -89,11 +105,33 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 	}
 	s.queue = taskQueue
 
+	// Notification manager
+	notifyMgr := notify.NewManager(logger)
+	for _, nc := range cfg.Notifications {
+		switch nc.Type {
+		case "webhook":
+			urls := []string{}
+			if nc.URL != "" {
+				urls = append(urls, nc.URL)
+			}
+			notifyMgr.Add(notify.NewWebhookNotifier(urls))
+		case "slack":
+			notifyMgr.Add(notify.NewSlackNotifier(nc.WebhookURL))
+		case "smtp":
+			notifyMgr.Add(notify.NewSMTPNotifier(nc.SMTPHost, nc.SMTPPort, nc.Username, nc.Password, nc.From, nc.To))
+		case "feishu":
+			notifyMgr.Add(notify.NewFeishuNotifier(nc.HookURL))
+		case "wecom":
+			notifyMgr.Add(notify.NewWeComNotifier(nc.HookURL))
+		}
+	}
+
 	// Scheduler
 	s.scheduler = NewScheduler(s.registry, s.queue, SchedulerOptions{
 		MaxEscalations: cfg.MaxEscalations,
 		WebhookURLs:    cfg.WebhookURLs,
 		Logger:         logger,
+		NotifyManager:  notifyMgr,
 		OnDispatch: func(task *reef.Task, clientID string) error {
 			// Actually send the task_dispatch message via WebSocket
 			if s.wsServer == nil {
