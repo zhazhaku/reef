@@ -118,6 +118,33 @@ _*Recent builds may use 10-20MB due to rapid PR merges. Resource optimization is
 <img src="assets/hardware-banner.jpg" alt="PicoClaw Hardware Compatibility" width="100%">
 </p>
 
+## 🌊 Reef: Distributed Multi-Agent Swarm
+
+PicoClaw now ships with **Reef** — a built-in distributed multi-agent orchestration system that turns any fleet of PicoClaw nodes into a collaborative swarm.
+
+🐝 **Hub-and-Spoke Topology**: One Reef Server coordinates any number of Client nodes over WebSocket.
+
+🎯 **Role-Based Routing**: Tasks are automatically matched to agents by role (`coder`, `analyst`, `tester`) and required skills.
+
+🔄 **Fault Tolerance**: Failed tasks are retried and reassigned; exhausted retries escalate to admin.
+
+⏸️ **Lifecycle Control**: Cancel, pause, and resume tasks in flight via the Admin API.
+
+📊 **Observability**: HTTP Admin endpoints expose real-time status, task queues, and client health.
+
+```bash
+# Start a Reef Server
+picoclaw reef-server --ws-addr :8080 --admin-addr :8081 --token my-token
+
+# Connect a Client node (configure in config.json)
+# Then submit tasks via Admin API
+curl -X POST http://localhost:8081/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"instruction":"Write a test","required_role":"coder","required_skills":["github"]}'
+```
+
+👉 **[Reef Documentation](docs/reef/README.md)** — Quick start, deployment, architecture, and API reference.
+
 ## 🦾 Demonstration
 
 ### 🛠️ Standard Assistant Workflows
