@@ -19,6 +19,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
+	"github.com/sipeed/picoclaw/pkg/channels/swarm"
 	_ "github.com/sipeed/picoclaw/pkg/channels/dingtalk"
 	_ "github.com/sipeed/picoclaw/pkg/channels/discord"
 	_ "github.com/sipeed/picoclaw/pkg/channels/feishu"
@@ -29,6 +30,7 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
 	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
 	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
+	_ "github.com/sipeed/picoclaw/pkg/channels/swarm"
 	_ "github.com/sipeed/picoclaw/pkg/channels/teams_webhook"
 	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
 	_ "github.com/sipeed/picoclaw/pkg/channels/vk"
@@ -246,6 +248,13 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	defer cancel()
 
 	go agentLoop.Run(ctx)
+
+	// Wire SwarmChannel to AgentLoop for event observation
+	if swarmCh, ok := runningServices.ChannelManager.GetChannel("swarm"); ok {
+		if sc, ok := swarmCh.(*swarm.SwarmChannel); ok {
+			sc.SetAgentLoop(agentLoop)
+		}
+	}
 
 	var configReloadChan <-chan *config.Config
 	stopWatch := func() {}

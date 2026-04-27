@@ -33,6 +33,7 @@ const (
 	ChannelWhatsApp       = "whatsapp"
 	ChannelWhatsAppNative = "whatsapp_native"
 	ChannelTeamsWebHook   = "teams_webhook"
+	ChannelSwarm          = "swarm"
 )
 
 func initChannel() {
@@ -500,6 +501,19 @@ func validateSingletonChannels(channels ChannelsConfig) error {
 	return nil
 }
 
+// SwarmSettings configures the Reef SwarmChannel.
+type SwarmSettings struct {
+	Enabled           bool     `json:"enabled"`
+	ServerURL         string   `json:"server_url"`
+	Token             string   `json:"token,omitempty"`
+	ClientID          string   `json:"client_id,omitempty"`
+	Role              string   `json:"role"`
+	Skills            []string `json:"skills,omitempty"`
+	Providers         []string `json:"providers,omitempty"`
+	Capacity          int      `json:"capacity,omitempty"`
+	HeartbeatInterval int      `json:"heartbeat_interval,omitempty"`
+}
+
 // BaseFieldNames are JSON keys that belong to Channel, not to channel-specific settings.
 var BaseFieldNames = map[string]struct{}{
 	"enabled":              {},
@@ -623,6 +637,7 @@ func filterSecureFields(r RawNode, secureFields map[string]struct{}) RawNode {
 var channelSettingsFactory = map[string]any{
 	ChannelPico:           (PicoSettings{}),
 	ChannelPicoClient:     (PicoClientSettings{}),
+	ChannelSwarm:          (SwarmSettings{}),
 	ChannelTelegram:       (TelegramSettings{}),
 	ChannelDiscord:        (DiscordSettings{}),
 	ChannelFeishu:         (FeishuSettings{}),
