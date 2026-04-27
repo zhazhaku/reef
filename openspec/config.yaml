@@ -1,0 +1,21 @@
+schema: spec-driven
+context: |
+  Project: Reef — Distributed multi-agent orchestration extending PicoClaw
+  Stack: Go 1.25+, gorilla/websocket, PicoClaw framework
+  Target: ARM64 edge devices (Sipeed boards), single binary dual-mode
+rules:
+  proposal:
+    - Include architectural constraints and risk assessment
+    - Reference PicoClaw existing primitives (bus, skills, channels, agent)
+  specs:
+    - Use RFC 2119 keywords (SHALL/MUST/SHOULD/MAY)
+    - Use Given/When/Then format for scenarios
+    - Tag each requirement with category (SWARM/SCHED/TASK/LIFE/RETRY/CONN/ROLE/ADMIN)
+  design:
+    - Reference specific PicoClaw packages (pkg/bus, pkg/skills, pkg/channels, pkg/agent)
+    - Include data flow diagrams in ASCII/text
+    - Note Go-specific concurrency patterns (goroutines, channels, sync.Map)
+  tasks:
+    - Group by phase (1-5)
+    - Mark dependencies between tasks
+    - Estimate complexity (S/M/L)

@@ -1,0 +1,9 @@
+name: reef-v1-distributed-swarm
+schema: spec-driven
+status: review
+artifacts:
+  proposal: completed
+  specs: completed
+  design: completed
+  tasks: completed
+created: 2026-04-27
