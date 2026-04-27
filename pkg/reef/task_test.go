@@ -13,7 +13,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 			t.Errorf("%s should be terminal", s)
 		}
 	}
-	nonTerminal := []TaskStatus{TaskCreated, TaskQueued, TaskAssigned, TaskRunning, TaskPaused}
+	nonTerminal := []TaskStatus{TaskCreated, TaskQueued, TaskAssigned, TaskRunning, TaskPaused, TaskEscalated}
 	for _, s := range nonTerminal {
 		if s.IsTerminal() {
 			t.Errorf("%s should not be terminal", s)
@@ -41,6 +41,10 @@ func TestTaskStatus_CanTransitionTo(t *testing.T) {
 		{TaskPaused, TaskFailed},
 		{TaskPaused, TaskCancelled},
 		{TaskFailed, TaskQueued},
+		{TaskFailed, TaskEscalated},
+		{TaskEscalated, TaskQueued},
+		{TaskEscalated, TaskFailed},
+		{TaskEscalated, TaskCancelled},
 	}
 	for _, tt := range valid {
 		if !tt.from.CanTransitionTo(tt.to) {
@@ -55,6 +59,7 @@ func TestTaskStatus_CanTransitionTo(t *testing.T) {
 		{TaskCancelled, TaskRunning},
 		{TaskCreated, TaskCompleted},
 		{TaskRunning, TaskAssigned},
+		{TaskQueued, TaskRunning},
 	}
 	for _, tt := range invalid {
 		if tt.from.CanTransitionTo(tt.to) {

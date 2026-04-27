@@ -18,6 +18,7 @@ const (
 	TaskCompleted TaskStatus = "Completed"
 	TaskFailed    TaskStatus = "Failed"
 	TaskCancelled TaskStatus = "Cancelled"
+	TaskEscalated TaskStatus = "Escalated"
 )
 
 // IsTerminal returns true if the status is a terminal state.
@@ -36,10 +37,11 @@ func (s TaskStatus) CanTransitionTo(target TaskStatus) bool {
 		TaskCreated:   {TaskQueued, TaskAssigned, TaskFailed},
 		TaskQueued:    {TaskAssigned, TaskFailed},
 		TaskAssigned:  {TaskRunning, TaskFailed, TaskQueued},
-		TaskRunning:   {TaskCompleted, TaskFailed, TaskPaused, TaskCancelled},
+		TaskRunning:   {TaskCompleted, TaskFailed, TaskPaused, TaskCancelled, TaskQueued},
 		TaskPaused:    {TaskRunning, TaskFailed, TaskCancelled},
 		TaskCompleted: {},
-		TaskFailed:    {TaskQueued}, // reassign via escalation
+		TaskFailed:    {TaskQueued, TaskEscalated}, // reassign via escalation
+		TaskEscalated: {TaskQueued, TaskFailed, TaskCancelled},
 		TaskCancelled: {},
 	}
 	allowed, ok := valid[s]
@@ -75,6 +77,7 @@ type AttemptRecord struct {
 	EndedAt       time.Time `json:"ended_at"`
 	Status        string    `json:"status"` // "success" or "failed"
 	ErrorMessage  string    `json:"error_message,omitempty"`
+	ClientID      string    `json:"client_id,omitempty"`
 }
 
 // Task is the domain object representing a unit of work in Reef.

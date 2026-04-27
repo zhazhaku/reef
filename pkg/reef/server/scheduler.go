@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sipeed/reef/pkg/reef"
 )
@@ -71,7 +72,17 @@ func (s *Scheduler) TryDispatch() {
 			return
 		}
 
-		client := s.matchClient(task)
+		// Exclude the most recently failed client to avoid reassigning
+		// a task back to the same node that just failed it.
+		excludeID := ""
+		for i := len(task.AttemptHistory) - 1; i >= 0; i-- {
+			if task.AttemptHistory[i].Status == "failed" && task.AttemptHistory[i].ClientID != "" {
+				excludeID = task.AttemptHistory[i].ClientID
+				break
+			}
+		}
+
+		client := s.matchClient(task, excludeID)
 		if client == nil {
 			// No match available — put it back at the head and stop.
 			_ = s.queue.Enqueue(task) // should never fail since we just dequeued
@@ -90,12 +101,15 @@ func (s *Scheduler) TryDispatch() {
 	}
 }
 
-// matchClient finds the best-fit client for a task.
+// matchClient finds the best-fit client for a task, optionally excluding a client ID.
 // Algorithm: role match → skill coverage → capacity → lowest current load.
-func (s *Scheduler) matchClient(task *reef.Task) *reef.ClientInfo {
+func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientInfo {
 	candidates := s.registry.List()
 	var best *reef.ClientInfo
 	for _, c := range candidates {
+		if c.ID == excludeID {
+			continue
+		}
 		if !c.IsAvailable() {
 			continue
 		}
@@ -172,9 +186,30 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
 	}
 
+	// Record the failed attempt with the client ID.
+	failedClient := task.AssignedClient
+	if len(attemptHistory) == 0 {
+		attemptHistory = []reef.AttemptRecord{{
+			AttemptNumber: len(task.AttemptHistory) + 1,
+			StartedAt:     time.Now(),
+			EndedAt:       time.Now(),
+			Status:        "failed",
+			ErrorMessage:  taskErr.Message,
+			ClientID:      failedClient,
+		}}
+	} else {
+		for i := range attemptHistory {
+			if attemptHistory[i].ClientID == "" {
+				attemptHistory[i].ClientID = failedClient
+			}
+		}
+	}
 	task.Error = taskErr
 	task.AttemptHistory = append(task.AttemptHistory, attemptHistory...)
-	s.registry.DecrementLoad(task.AssignedClient)
+	s.registry.DecrementLoad(failedClient)
+
+	// Transition to Failed first, then apply escalation decision.
+	_ = task.Transition(reef.TaskFailed)
 
 	decision := s.escalate(task)
 	needsRequeue := false
@@ -185,9 +220,9 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		_ = task.Transition(reef.TaskQueued)
 		needsRequeue = true
 	case EscalationTerminate:
-		_ = task.Transition(reef.TaskFailed)
+		// Already in Failed state — no further transition.
 	case EscalationToAdmin:
-		_ = task.Transition(reef.TaskFailed)
+		_ = task.Transition(reef.TaskEscalated)
 		// TODO: emit admin alert
 	}
 	s.mu.Unlock()
@@ -241,10 +276,10 @@ func (s *Scheduler) escalate(task *reef.Task) EscalationDecision {
 	if task.EscalationCount >= s.maxEscalations {
 		return EscalationToAdmin
 	}
-	// Check if another client is available
-	if s.matchClient(task) != nil {
+	// Check if another client is available (exclude the one that just failed)
+	if s.matchClient(task, task.AssignedClient) != nil {
 		return EscalationReassign
 	}
-	// No other client available — try once more later or terminate
+	// No other client available — terminate
 	return EscalationTerminate
 }

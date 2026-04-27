@@ -176,7 +176,9 @@ func TestScheduler_HandleTaskFailed_Terminate(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 0})
+	// MaxEscalations > 0 so it doesn't immediately go to ToAdmin;
+	// only one client exists so matchClient returns nil -> Terminate.
+	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 1})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -188,6 +190,33 @@ func TestScheduler_HandleTaskFailed_Terminate(t *testing.T) {
 
 	if task.Status != reef.TaskFailed {
 		t.Errorf("status = %s, want Failed", task.Status)
+	}
+}
+
+func TestScheduler_HandleTaskFailed_EscalateToAdmin(t *testing.T) {
+	reg := NewRegistry(nil)
+	reg.Register(&reef.ClientInfo{
+		ID:          "c1",
+		Role:        "coder",
+		Capacity:    2,
+		CurrentLoad: 0,
+		State:       reef.ClientConnected,
+	})
+
+	queue := NewTaskQueue(10, time.Hour)
+	// MaxEscalations: 0 forces immediate ToAdmin decision.
+	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 0})
+
+	task := reef.NewTask("t1", "write code", "coder", nil)
+	_ = sch.Submit(task)
+
+	err := sch.HandleTaskFailed("t1", &reef.TaskError{Type: "execution_error", Message: "fail"}, nil)
+	if err != nil {
+		t.Fatalf("handle failed returned error: %v", err)
+	}
+
+	if task.Status != reef.TaskEscalated {
+		t.Errorf("status = %s, want Escalated", task.Status)
 	}
 }
 
@@ -224,6 +253,28 @@ func TestScheduler_MatchClient_LoadBalancing(t *testing.T) {
 	// Should dispatch to c2 because it has lower load
 	if task.AssignedClient != "c2" {
 		t.Errorf("assigned = %s, want c2 (load balancing)", task.AssignedClient)
+	}
+}
+
+func TestScheduler_MatchClient_Exclusion(t *testing.T) {
+	reg := NewRegistry(nil)
+	reg.Register(&reef.ClientInfo{
+		ID: "c1", Role: "coder", Capacity: 2, CurrentLoad: 0, State: reef.ClientConnected,
+	})
+
+	queue := NewTaskQueue(10, time.Hour)
+	sch := NewScheduler(reg, queue, SchedulerOptions{})
+
+	task := reef.NewTask("t1", "write code", "coder", nil)
+	// matchClient with exclusion should return nil when c1 is excluded
+	matched := sch.matchClient(task, "c1")
+	if matched != nil {
+		t.Errorf("expected nil when excluding c1, got %s", matched.ID)
+	}
+	// Without exclusion should match c1
+	matched = sch.matchClient(task, "")
+	if matched == nil || matched.ID != "c1" {
+		t.Errorf("expected c1 without exclusion, got %v", matched)
 	}
 }
 
