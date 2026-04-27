@@ -7,7 +7,7 @@ Milestone 1: v1 Distributed Swarm
 
 | Phase | Status | Started | Completed |
 |-------|--------|---------|-----------|
-| 1: Swarm Protocol & Core Types | Not Started | — | — |
+| 1: Swarm Protocol & Core Types | **Completed** | 2026-04-27 | 2026-04-27 |
 | 2: Reef Server | Not Started | — | — |
 | 3: Reef Client & SwarmChannel | Not Started | — | — |
 | 4: Task Lifecycle & Failure Handling | Not Started | — | — |
