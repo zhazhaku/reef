@@ -111,11 +111,24 @@ func NewSwarmChannel(
 }
 
 // SetAgentLoop wires the SwarmChannel to the AgentLoop for event observation.
-// Must be called before Start() if you want turn-level tracking.
+// If the channel is already running, the hook is mounted immediately.
 func (s *SwarmChannel) SetAgentLoop(al *agent.AgentLoop) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.agentLoop = al
+
+	// If already running, mount the hook now (normally Start() does this,
+	// but SetAgentLoop may be called after Start due to startup ordering).
+	if al != nil && s.IsRunning() && s.hookReg == "" {
+		reg := agent.NamedHook("reef-swarm", s)
+		if err := al.MountHook(reg); err != nil {
+			s.logger.Warn("failed to mount reef hook in SetAgentLoop", slog.String("error", err.Error()))
+		} else {
+			s.hookReg = reg.Name
+			s.logger.Info("reef-swarm hook mounted via SetAgentLoop")
+		}
+	}
 }
 
 // Start implements channels.Channel.
