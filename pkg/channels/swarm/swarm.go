@@ -112,11 +112,21 @@ func NewSwarmChannel(
 
 // SetAgentLoop wires the SwarmChannel to the AgentLoop for event observation.
 // If the channel is already running, the hook is mounted immediately.
+// Also sets the AgentLoop to HermesExecutor mode when running as a client.
 func (s *SwarmChannel) SetAgentLoop(al *agent.AgentLoop) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.agentLoop = al
+
+	// When running as a client (SwarmChannel), set HermesExecutor mode.
+	// This ensures the AgentLoop doesn't try to delegate tasks externally
+	// — it executes tasks received from the server using all available tools.
+	if al != nil {
+		al.SetHermesMode(agent.HermesExecutor)
+		s.logger.Info("Hermes mode set to executor for swarm client",
+			slog.String("client_id", s.connector.ClientID()))
+	}
 
 	// If already running, mount the hook now (normally Start() does this,
 	// but SetAgentLoop may be called after Start due to startup ordering).
