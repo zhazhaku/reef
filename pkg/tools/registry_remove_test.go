@@ -17,7 +17,7 @@ func (m *mockTool) Name() string               { return m.name }
 func (m *mockTool) Description() string        { return "mock" }
 func (m *mockTool) Parameters() map[string]any { return nil }
 func (m *mockTool) Execute(_ context.Context, _ map[string]any) *ToolResult {
-	return &ToolResult{Output: "ok"}
+	return &ToolResult{ForLLM: "ok"}
 }
 
 func TestToolRegistry_Remove(t *testing.T) {

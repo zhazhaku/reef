@@ -24,9 +24,11 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/reef"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/state"
+	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -286,6 +288,23 @@ func (al *AgentLoop) HermesGuard() *HermesGuard {
 // SetHermesGuard sets the Hermes guard for runtime tool access control.
 func (al *AgentLoop) SetHermesGuard(guard *HermesGuard) {
 	al.hermesGuard = guard
+}
+
+// RegisterReefTools registers the Reef coordination tools (reef_submit_task,
+// reef_query_task, reef_status) on all agents. This is called when the
+// AgentLoop runs in Coordinator mode and a Reef Server is available.
+func (al *AgentLoop) RegisterReefTools(bridge reef.ReefBridge) {
+	for _, agentID := range al.registry.ListAgentIDs() {
+		agent, ok := al.registry.GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		agent.Tools.Register(tools.NewReefSubmitTaskTool(bridge))
+		agent.Tools.Register(tools.NewReefQueryTaskTool(bridge))
+		agent.Tools.Register(tools.NewReefStatusTool(bridge))
+		logger.InfoCF("agent", "Registered Reef coordination tools",
+			map[string]any{"agent_id": agentID})
+	}
 }
 
 func (al *AgentLoop) Stop() {

@@ -207,6 +207,17 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 
+	// If Hermes Coordinator mode, start Reef Server in background and
+	// register coordination tools on the AgentLoop.
+	if cfg.Hermes.IsCoordinator() {
+		reefSrv := startReefServerBackground(cfg)
+		if reefSrv != nil {
+			bridge := reefSrv.Bridge()
+			agentLoop.RegisterReefTools(bridge)
+			logger.InfoCF("reef", "Reef coordination tools registered for Hermes Coordinator", nil)
+		}
+	}
+
 	fmt.Println("\n📦 Agent Status:")
 	startupInfo := agentLoop.GetStartupInfo()
 	toolsInfo := startupInfo["tools"].(map[string]any)
@@ -909,4 +920,97 @@ func runReefServerMode(cfg *config.Config) error {
 
 	fmt.Println("\nShutting down Reef Server...")
 	return srv.Stop()
+}
+
+// startReefServerBackground starts the Reef Server in the background
+// (non-blocking) and returns the Server instance. Returns nil if swarm
+// is not configured in server mode.
+// This is used by the `picoclaw server` command to run both the Reef
+// Server and the Gateway/AgentLoop in the same process.
+func startReefServerBackground(cfg *config.Config) *reefserver.Server {
+	ch, exists := cfg.Channels["swarm"]
+	if !exists || !ch.Enabled {
+		return nil
+	}
+
+	decoded, err := ch.GetDecoded()
+	if err != nil || decoded == nil {
+		return nil
+	}
+
+	settings, ok := decoded.(*config.SwarmSettings)
+	if !ok || settings.Mode != "server" {
+		return nil
+	}
+
+	if settings.WSAddr == "" {
+		logger.WarnCF("reef", "swarm mode 'server' requires ws_addr, skipping background start", nil)
+		return nil
+	}
+
+	adminAddr := settings.AdminAddr
+	if adminAddr == "" {
+		adminAddr = ":8081"
+	}
+
+	maxQueue := settings.MaxQueue
+	if maxQueue <= 0 {
+		maxQueue = 1000
+	}
+	maxEscalations := settings.MaxEscalations
+	if maxEscalations <= 0 {
+		maxEscalations = 2
+	}
+
+	srvCfg := reefserver.Config{
+		WebSocketAddr:    settings.WSAddr,
+		AdminAddr:        adminAddr,
+		Token:            settings.Token,
+		HeartbeatTimeout: 30 * time.Second,
+		HeartbeatScan:    5 * time.Second,
+		QueueMaxLen:      maxQueue,
+		QueueMaxAge:      10 * time.Minute,
+		MaxEscalations:   maxEscalations,
+		WebhookURLs:      settings.WebhookURLs,
+		StoreType:        settings.StoreType,
+		StorePath:        settings.StorePath,
+	}
+
+	if settings.TLSEnabled {
+		srvCfg.TLS = &reefserver.TLSConfig{
+			Enabled:  true,
+			CertFile: settings.TLSCertFile,
+			KeyFile:  settings.TLSKeyFile,
+		}
+	}
+
+	for _, nc := range settings.Notifications {
+		srvCfg.Notifications = append(srvCfg.Notifications, reefserver.NotificationConfig{
+			Type:       nc.Type,
+			URL:        nc.URL,
+			WebhookURL: nc.WebhookURL,
+			HookURL:    nc.HookURL,
+			SMTPHost:   nc.SMTPHost,
+			SMTPPort:   nc.SMTPPort,
+			From:       nc.From,
+			To:         nc.To,
+			Username:   nc.Username,
+			Password:   nc.Password,
+		})
+	}
+
+	srv := reefserver.NewServer(srvCfg, nil)
+	if err := srv.Start(); err != nil {
+		logger.ErrorCF("reef", "Failed to start background Reef Server",
+			map[string]any{"error": err.Error()})
+		return nil
+	}
+
+	logger.InfoCF("reef", "Reef Server started in background",
+		map[string]any{
+			"ws_addr":    settings.WSAddr,
+			"admin_addr": adminAddr,
+		})
+
+	return srv
 }

@@ -75,6 +75,13 @@ type Server struct {
 	httpServer   *http.Server
 	wsHTTPServer *http.Server
 	cancelCtx    context.CancelFunc
+	bridge       *ServerBridge
+}
+
+// Bridge returns the ReefBridge for in-process access to the scheduler.
+// Used by the AgentLoop's coordination tools.
+func (s *Server) Bridge() *ServerBridge {
+	return s.bridge
 }
 
 // NewServer creates and wires all server components.
@@ -159,6 +166,9 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 
 	// Web UI dashboard
 	s.ui = ui.NewHandler(s.registry, s.scheduler, time.Now(), logger)
+
+	// Bridge for in-process coordination tools
+	s.bridge = NewServerBridge(s.scheduler, s.registry)
 
 	return s
 }
