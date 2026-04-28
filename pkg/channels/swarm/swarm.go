@@ -196,6 +196,11 @@ func (s *SwarmChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]str
 		s.mu.Lock()
 		task.finalContent = msg.Content
 		s.mu.Unlock()
+
+		// Report completion immediately — the OnEvent path may not fire
+		// if SetAgentLoop was never called, so Send() is the reliable path.
+		s.reportCompleted(taskID, msg.Content, 0)
+		s.removeActiveTask(taskID)
 	}
 
 	return nil, nil
@@ -248,6 +253,12 @@ func (s *SwarmChannel) OnEvent(ctx context.Context, evt agent.Event) error {
 			task.status = string(payload.Status)
 		}
 		s.mu.Unlock()
+
+		// If the task was already removed (completed via Send path),
+		// skip duplicate reporting.
+		if task == nil {
+			return nil
+		}
 
 		switch payload.Status {
 		case agent.TurnEndStatusCompleted:
