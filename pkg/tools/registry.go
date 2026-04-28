@@ -466,3 +466,19 @@ func (r *ToolRegistry) GetAll() []Tool {
 	}
 	return tools
 }
+
+// Remove removes a tool by name from the registry.
+// Returns true if the tool was found and removed, false otherwise.
+// This is used by the Hermes architecture to dynamically remove tools
+// when recovering from fallback mode (e.g., when a client comes back online).
+func (r *ToolRegistry) Remove(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.tools[name]; !exists {
+		return false
+	}
+	delete(r.tools, name)
+	r.version.Add(1)
+	logger.DebugCF("tools", "Removed tool from registry", map[string]any{"name": name})
+	return true
+}

@@ -45,6 +45,34 @@ toolLoop:
 		toolName := tc.Name
 		toolArgs := cloneStringAnyMap(tc.Arguments)
 
+		// Hermes Guard: check if the tool is allowed in the current mode.
+		// This is a runtime check that complements the structural tool
+		// registration constraint. It catches cases where tools were
+		// dynamically registered during fallback and haven't been removed yet.
+		if al.hermesGuard != nil && !al.hermesGuard.Allow(toolName) {
+			toolDenyMsg := fmt.Sprintf(
+				"Tool %q is not allowed in Hermes %s mode. "+
+					"As a coordinator, use reef_submit_task to delegate this task to a team member.",
+				toolName, al.hermesMode)
+			logger.WarnCF("hermes", "Hermes guard blocked tool call",
+				map[string]any{
+					"tool":      toolName,
+					"mode":      string(al.hermesMode),
+					"agent_id":  ts.agent.ID,
+					"iteration": iteration,
+				})
+			messages = append(messages, providers.Message{
+				Role:    "tool",
+				Content: toolDenyMsg,
+				ToolCalls: []providers.ToolCall{{
+					ID:   tc.ID,
+					Name: toolName,
+				}},
+				ToolCallID: tc.ID,
+			})
+			continue
+		}
+
 		if al.hooks != nil {
 			toolReq, decision := al.hooks.BeforeTool(turnCtx, &ToolCallHookRequest{
 				Meta:      ts.eventMeta("runTurn", "turn.tool.before"),

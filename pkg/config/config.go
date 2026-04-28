@@ -47,6 +47,13 @@ type Config struct {
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
+	// Hermes controls the multi-agent capability architecture.
+	// When mode is "coordinator", the AgentLoop operates as a team
+	// coordinator with restricted tool access. When mode is "executor",
+	// it operates as a task executor. When mode is "full" or empty,
+	// no constraints are applied (default single-client behavior).
+	Hermes HermesConfig `json:"hermes,omitempty" yaml:"-"`
+
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
 }
@@ -118,6 +125,45 @@ type BuildInfo struct {
 	GitCommit string `json:"git_commit"`
 	BuildTime string `json:"build_time"`
 	GoVersion string `json:"go_version"`
+}
+
+// HermesConfig controls the multi-agent capability architecture.
+// When Mode is "coordinator", the AgentLoop operates as a team
+// coordinator with restricted tool access. When Mode is "executor",
+// it operates as a task executor. When Mode is "full" or empty,
+// no constraints are applied (default single-client behavior).
+type HermesConfig struct {
+	// Mode determines the operational role: "full" (default), "coordinator", or "executor"
+	Mode string `json:"mode,omitempty"`
+	// Fallback controls whether the coordinator can degrade to full mode
+	// when no clients are online
+	Fallback bool `json:"fallback,omitempty"`
+	// FallbackTimeoutMs is the time in milliseconds to wait for a client
+	// before degrading. 0 means immediate fallback when no clients are online.
+	FallbackTimeoutMs int `json:"fallback_timeout_ms,omitempty"`
+}
+
+// HermesMode returns the parsed Hermes mode string.
+func (c HermesConfig) HermesMode() string {
+	if c.Mode == "" {
+		return "full"
+	}
+	return c.Mode
+}
+
+// IsCoordinator returns true if the Hermes mode is coordinator.
+func (c HermesConfig) IsCoordinator() bool {
+	return c.Mode == "coordinator"
+}
+
+// IsExecutor returns true if the Hermes mode is executor.
+func (c HermesConfig) IsExecutor() bool {
+	return c.Mode == "executor"
+}
+
+// IsFull returns true if the Hermes mode is full (or empty/unset).
+func (c HermesConfig) IsFull() bool {
+	return c.Mode == "" || c.Mode == "full"
 }
 
 // MarshalJSON implements custom JSON marshaling for Config

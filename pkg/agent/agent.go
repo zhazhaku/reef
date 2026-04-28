@@ -58,6 +58,10 @@ type AgentLoop struct {
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
 
+	// Hermes capability architecture
+	hermesMode  HermesMode
+	hermesGuard *HermesGuard
+
 	// activeTurnStates tracks active turns per session to prevent duplicates.
 	activeTurnStates sync.Map
 	subTurnCounter   atomic.Int64
@@ -263,6 +267,26 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 // false if context was canceled and the caller should return.
 
 // publishResponseOrError publishes the response, or an error message if processing failed.
+
+// SetHermesMode sets the Hermes operational mode.
+func (al *AgentLoop) SetHermesMode(mode HermesMode) {
+	al.hermesMode = mode
+}
+
+// HermesMode returns the current Hermes operational mode.
+func (al *AgentLoop) HermesMode() HermesMode {
+	return al.hermesMode
+}
+
+// HermesGuard returns the Hermes guard for runtime tool access control.
+func (al *AgentLoop) HermesGuard() *HermesGuard {
+	return al.hermesGuard
+}
+
+// SetHermesGuard sets the Hermes guard for runtime tool access control.
+func (al *AgentLoop) SetHermesGuard(guard *HermesGuard) {
+	al.hermesGuard = guard
+}
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)

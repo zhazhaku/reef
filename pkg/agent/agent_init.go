@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
@@ -66,6 +67,25 @@ func NewAgentLoop(
 		steering:    newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
 		workerSem:   make(chan struct{}, workerPoolSize),
 	}
+
+	// Initialize Hermes capability architecture
+	al.hermesMode = ParseHermesMode(cfg.Hermes.HermesMode())
+	al.hermesGuard = NewHermesGuard(al.hermesMode)
+
+	// Register Hermes role prompt contributor (if not Full mode)
+	if al.hermesMode != HermesFull {
+		hermesContributor := newHermesRoleContributor(al.hermesMode)
+		for _, agentID := range registry.ListAgentIDs() {
+			if a, ok := registry.GetAgent(agentID); ok {
+				if err := a.ContextBuilder.RegisterPromptContributor(hermesContributor); err != nil {
+					logger.WarnCF("agent", "Failed to register Hermes prompt contributor",
+						map[string]any{"agent_id": agentID, "error": err.Error()})
+				}
+			}
+		}
+		logger.InfoCF("agent", "Hermes mode initialized",
+			map[string]any{"mode": string(al.hermesMode)})
+	}
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.hooks = NewHookManager(eventBus)
 	configureHookManagerFromConfig(al.hooks, cfg)
@@ -98,6 +118,16 @@ func registerSharedTools(
 		if !ok {
 			continue
 		}
+
+		// === Hermes Coordinator mode: only register coordination tools ===
+		if al.hermesMode == HermesCoordinator {
+			registerCoordinatorTools(al, agent, cfg, msgBus)
+			continue
+		}
+
+		// === Hermes Executor / Full mode: register all tools ===
+		// (reef_submit_task is not in the default registration, so Executor
+		// mode doesn't need special handling here)
 
 		if cfg.Tools.IsToolEnabled("web") {
 			searchTool, err := tools.NewWebSearchTool(tools.WebSearchToolOptionsFromConfig(cfg))
@@ -325,4 +355,78 @@ func registerSharedTools(
 			logger.WarnCF("agent", "spawn/spawn_status tools require subagent to be enabled", nil)
 		}
 	}
+}
+
+// registerCoordinatorTools registers only the tools allowed for a
+// Hermes Coordinator agent. The coordinator's role is to understand
+// user intent, delegate tasks via reef_submit_task, and aggregate results.
+// It does NOT have direct execution tools (web_search, exec, read_file, etc.).
+func registerCoordinatorTools(
+	al *AgentLoop,
+	agent *AgentInstance,
+	cfg *config.Config,
+	msgBus interfaces.MessageBus,
+) {
+	// Message tool — coordinator needs to send messages to users
+	if cfg.Tools.IsToolEnabled("message") {
+		messageTool := tools.NewMessageTool()
+		messageTool.SetSendCallback(func(
+			ctx context.Context,
+			channel, chatID, content, replyToMessageID string,
+		) error {
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer pubCancel()
+			outboundCtx := bus.NewOutboundContext(channel, chatID, replyToMessageID)
+			outboundAgentID, outboundSessionKey, outboundScope := outboundTurnMetadata(
+				tools.ToolAgentID(ctx),
+				tools.ToolSessionKey(ctx),
+				tools.ToolSessionScope(ctx),
+			)
+			return msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
+				Context:          outboundCtx,
+				AgentID:          outboundAgentID,
+				SessionKey:       outboundSessionKey,
+				Scope:            outboundScope,
+				Content:          content,
+				ReplyToMessageID: replyToMessageID,
+			})
+		})
+		agent.Tools.Register(messageTool)
+	}
+
+	// Reaction tool — lightweight interaction
+	if cfg.Tools.IsToolEnabled("reaction") {
+		reactionTool := tools.NewReactionTool()
+		reactionTool.SetReactionCallback(func(ctx context.Context, channel, chatID, messageID string) error {
+			if al.channelManager == nil {
+				return fmt.Errorf("channel manager not configured")
+			}
+			ch, ok := al.channelManager.GetChannel(channel)
+			if !ok {
+				return fmt.Errorf("channel %s not found", channel)
+			}
+			rc, ok := ch.(channels.ReactionCapable)
+			if !ok {
+				return fmt.Errorf("channel %s does not support reactions", channel)
+			}
+			_, err := rc.ReactToMessage(ctx, chatID, messageID)
+			return err
+		})
+		agent.Tools.Register(reactionTool)
+	}
+
+	// Cron tool — coordinator may need to schedule tasks
+	// (registered if available in the future)
+
+	// Reef coordination tools — these will be registered by the
+	// Reef integration layer when it's initialized:
+	//   - reef_submit_task
+	//   - reef_query_task
+	//   - reef_status
+
+	logger.InfoCF("agent", "Registered coordinator tools (Hermes mode)",
+		map[string]any{
+			"agent_id": agent.ID,
+			"tools":    strings.Join(agent.Tools.List(), ","),
+		})
 }

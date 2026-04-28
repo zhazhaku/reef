@@ -60,6 +60,7 @@ const (
 	PromptSourceSteering       PromptSourceID = "turn:steering"
 	PromptSourceSubTurnResult  PromptSourceID = "turn:subturn_result"
 	PromptSourceInterrupt      PromptSourceID = "turn:interrupt"
+	PromptSourceHermesRole     PromptSourceID = "hermes:role"
 )
 
 type PromptCachePolicy string
@@ -257,6 +258,13 @@ func builtinPromptSources() []PromptSourceDescriptor {
 			Description:     "Graceful interrupt hint injected into the terminal LLM call",
 			Allowed:         []PromptPlacement{{Layer: PromptLayerTurn, Slot: PromptSlotInterrupt}},
 			StableByDefault: false,
+		},
+		{
+			ID:              PromptSourceHermesRole,
+			Owner:           "hermes",
+			Description:     "Hermes role definition for multi-agent coordination",
+			Allowed:         []PromptPlacement{{Layer: PromptLayerKernel, Slot: PromptSlotIdentity}},
+			StableByDefault: true,
 		},
 	}
 }
