@@ -98,13 +98,33 @@ func SerializeMessages(messages []Message) []any {
 	for _, m := range messages {
 		toolCalls := serializeToolCalls(m.ToolCalls)
 		if len(m.Media) == 0 {
-			out = append(out, openaiMessage{
-				Role:             m.Role,
-				Content:          m.Content,
-				ReasoningContent: m.ReasoningContent,
-				ToolCalls:        toolCalls,
-				ToolCallID:       m.ToolCallID,
-			})
+			// DeepSeek thinking mode requires reasoning_content to be present
+			// (even if empty) in all subsequent requests. When
+			// ReasoningContentPresent is set, use map-based serialization
+			// to force-include the field; otherwise the struct omitempty tag
+			// would strip it.
+			if m.ReasoningContentPresent {
+				msg := map[string]any{
+					"role":             m.Role,
+					"content":          m.Content,
+					"reasoning_content": m.ReasoningContent,
+				}
+				if len(toolCalls) > 0 {
+					msg["tool_calls"] = toolCalls
+				}
+				if m.ToolCallID != "" {
+					msg["tool_call_id"] = m.ToolCallID
+				}
+				out = append(out, msg)
+			} else {
+				out = append(out, openaiMessage{
+					Role:             m.Role,
+					Content:          m.Content,
+					ReasoningContent: m.ReasoningContent,
+					ToolCalls:        toolCalls,
+					ToolCallID:       m.ToolCallID,
+				})
+			}
 			continue
 		}
 
@@ -148,7 +168,7 @@ func SerializeMessages(messages []Message) []any {
 		if len(toolCalls) > 0 {
 			msg["tool_calls"] = toolCalls
 		}
-		if m.ReasoningContent != "" {
+		if m.ReasoningContent != "" || m.ReasoningContentPresent {
 			msg["reasoning_content"] = m.ReasoningContent
 		}
 		out = append(out, msg)

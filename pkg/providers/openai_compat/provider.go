@@ -283,6 +283,7 @@ func stripReasoningMessages(messages []Message) []Message {
 
 		cloned := msg
 		cloned.ReasoningContent = ""
+		cloned.ReasoningContentPresent = false
 		if assistantMessageEmpty(cloned) {
 			continue
 		}

@@ -800,3 +800,43 @@ func TestParseResponse_WithFunctionThoughtSignature(t *testing.T) {
 		)
 	}
 }
+
+func TestSerializeMessages_ReasoningContentPresentForcesField(t *testing.T) {
+	// DeepSeek thinking mode: even when reasoning_content is empty,
+	// the field must be present in the wire format when ReasoningContentPresent is true.
+	msgs := []Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "thinking result", ReasoningContent: "", ReasoningContentPresent: true},
+	}
+	out := SerializeMessages(msgs)
+	if len(out) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(out))
+	}
+	// The assistant message should be a map (not struct) with reasoning_content
+	assistantMsg, ok := out[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected assistant message to be map[string]any when ReasoningContentPresent=true, got %T", out[1])
+	}
+	rc, exists := assistantMsg["reasoning_content"]
+	if !exists {
+		t.Fatalf("reasoning_content field must be present when ReasoningContentPresent=true, got: %v", assistantMsg)
+	}
+	if rc != "" {
+		t.Errorf("reasoning_content should be empty string, got %q", rc)
+	}
+}
+
+func TestSerializeMessages_ReasoningContentWithContent(t *testing.T) {
+	// When reasoning_content has actual content, it should always be serialized.
+	msgs := []Message{
+		{Role: "assistant", Content: "answer", ReasoningContent: "let me think...", ReasoningContentPresent: true},
+	}
+	out := SerializeMessages(msgs)
+	assistantMsg, ok := out[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", out[0])
+	}
+	if assistantMsg["reasoning_content"] != "let me think..." {
+		t.Errorf("expected reasoning_content to be preserved, got %v", assistantMsg["reasoning_content"])
+	}
+}

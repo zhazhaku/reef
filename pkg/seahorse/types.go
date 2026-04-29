@@ -18,14 +18,15 @@ const (
 
 // Message represents a single chat message with role and content.
 type Message struct {
-	ID               int64         `json:"id"`
-	ConversationID   int64         `json:"conversationId"`
-	Role             string        `json:"role"`
-	Content          string        `json:"content"`
-	ReasoningContent string        `json:"reasoningContent,omitempty"`
-	TokenCount       int           `json:"tokenCount"`
-	CreatedAt        time.Time     `json:"createdAt"`
-	Parts            []MessagePart `json:"parts,omitempty"`
+	ID                      int64         `json:"id"`
+	ConversationID          int64         `json:"conversationId"`
+	Role                    string        `json:"role"`
+	Content                 string        `json:"content"`
+	ReasoningContent        string        `json:"reasoningContent,omitempty"`
+	ReasoningContentPresent bool          `json:"reasoningContentPresent,omitempty"`
+	TokenCount              int           `json:"tokenCount"`
+	CreatedAt               time.Time     `json:"createdAt"`
+	Parts                   []MessagePart `json:"parts,omitempty"`
 }
 
 // MessagePart holds structured content (tool calls, media, etc.)

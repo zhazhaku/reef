@@ -468,9 +468,10 @@ func (p *Pipeline) CallLLM(
 
 	exec.allResponsesHandled = len(exec.normalizedToolCalls) > 0
 	assistantMsg := providers.Message{
-		Role:             "assistant",
-		Content:          exec.response.Content,
-		ReasoningContent: reasoningContent,
+		Role:                    "assistant",
+		Content:                 exec.response.Content,
+		ReasoningContent:        reasoningContent,
+		ReasoningContentPresent: exec.response.ReasoningContentPresent,
 	}
 	for _, tc := range exec.normalizedToolCalls {
 		argumentsJSON, _ := json.Marshal(tc.Arguments)

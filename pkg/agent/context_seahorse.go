@@ -195,10 +195,11 @@ func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKe
 // providerToSeahorseMessage converts a providers.Message to a seahorse.Message.
 func providerToSeahorseMessage(msg protocoltypes.Message) seahorse.Message {
 	result := seahorse.Message{
-		Role:             msg.Role,
-		Content:          msg.Content,
-		ReasoningContent: msg.ReasoningContent,
-		TokenCount:       tokenizer.EstimateMessageTokens(msg),
+		Role:                    msg.Role,
+		Content:                 msg.Content,
+		ReasoningContent:        msg.ReasoningContent,
+		ReasoningContentPresent: msg.ReasoningContentPresent,
+		TokenCount:              tokenizer.EstimateMessageTokens(msg),
 	}
 
 	// Convert ToolCalls → MessageParts
@@ -241,9 +242,10 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 	// Convert assembled messages (which already include summary XML messages)
 	for _, msg := range result.Messages {
 		pm := protocoltypes.Message{
-			Role:             msg.Role,
-			Content:          msg.Content,
-			ReasoningContent: msg.ReasoningContent,
+			Role:                    msg.Role,
+			Content:                 msg.Content,
+			ReasoningContent:        msg.ReasoningContent,
+			ReasoningContentPresent: msg.ReasoningContentPresent,
 		}
 
 		// Reconstruct ToolCalls from parts
