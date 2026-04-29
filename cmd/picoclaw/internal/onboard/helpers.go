@@ -15,6 +15,11 @@ import (
 )
 
 func onboard(encrypt bool) {
+	// Ensure picoclaw home directory exists. On fresh installs, this prefers
+	// the exe directory (portable mode) over ~/.picoclaw, so that onboard
+	// creates config and workspace alongside the binary.
+	_ = config.GetOrCreateHome()
+
 	configPath := internal.GetConfigPath()
 
 	configExists := false

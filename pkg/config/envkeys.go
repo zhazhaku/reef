@@ -44,14 +44,59 @@ const (
 )
 
 func GetHome() string {
-	homePath, _ := os.UserHomeDir()
+	// 1. Explicit env var override (highest priority)
 	if picoclawHome := os.Getenv(EnvHome); picoclawHome != "" {
-		homePath = picoclawHome
-	} else if homePath != "" {
-		homePath = filepath.Join(homePath, pkg.DefaultPicoClawHome)
+		return picoclawHome
 	}
-	if homePath == "" {
-		homePath = "."
+
+	// 2. Check for existing .picoclaw next to the executable (portable mode).
+	//    This enables self-contained deployments on embedded devices, Android,
+	//    or any scenario where all data should live alongside the binary.
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		portableHome := filepath.Join(exeDir, pkg.DefaultPicoClawHome)
+		if info, err := os.Stat(portableHome); err == nil && info.IsDir() {
+			return portableHome
+		}
 	}
-	return homePath
+
+	// 3. Default: ~/.picoclaw
+	homePath, _ := os.UserHomeDir()
+	if homePath != "" {
+		return filepath.Join(homePath, pkg.DefaultPicoClawHome)
+	}
+
+	return "."
+}
+
+// GetOrCreateHome returns the picoclaw home directory, creating it if necessary.
+// Priority: $PICOCLAW_HOME > .picoclaw next to exe (create if writable) > ~/.picoclaw
+// This is used by onboard to ensure fresh installs default to the exe directory
+// when it is writable (embedded devices, Android, portable deployments).
+func GetOrCreateHome() string {
+	// 1. Explicit env var override
+	if picoclawHome := os.Getenv(EnvHome); picoclawHome != "" {
+		return picoclawHome
+	}
+
+	// 2. Check for existing .picoclaw next to the executable
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		portableHome := filepath.Join(exeDir, pkg.DefaultPicoClawHome)
+		if info, err := os.Stat(portableHome); err == nil && info.IsDir() {
+			return portableHome
+		}
+		// Not yet created — try to create it (first-run onboard)
+		if err := os.MkdirAll(portableHome, 0o755); err == nil {
+			return portableHome
+		}
+	}
+
+	// 3. Default: ~/.picoclaw
+	homePath, _ := os.UserHomeDir()
+	if homePath != "" {
+		return filepath.Join(homePath, pkg.DefaultPicoClawHome)
+	}
+
+	return "."
 }
