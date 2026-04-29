@@ -252,7 +252,7 @@ func TestProviderChat_StripsReasoningContentForNonDeepSeekHistory(t *testing.T) 
 	}
 }
 
-func TestProviderChat_DeepSeekOmitsReasoningContentForNonToolTurnHistory(t *testing.T) {
+func TestProviderChat_DeepSeekPreservesReasoningContentForNonToolTurnHistory(t *testing.T) {
 	var requestBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,9 +301,11 @@ func TestProviderChat_DeepSeekOmitsReasoningContentForNonToolTurnHistory(t *test
 	if !ok {
 		t.Fatalf("assistant message is not map[string]any: %T", reqMessages[1])
 	}
-	if _, exists := assistantMsg["reasoning_content"]; exists {
+	// DeepSeek v4 thinking models require reasoning_content to be passed back.
+	// Non-thinking models never produce it, so preserving it is always safe.
+	if assistantMsg["reasoning_content"] != "Let me think... 1+1=2" {
 		t.Fatalf(
-			"reasoning_content should be omitted for DeepSeek non-tool turns, got %v",
+			"reasoning_content should be preserved for DeepSeek, got %v",
 			assistantMsg["reasoning_content"],
 		)
 	}
@@ -492,9 +494,11 @@ func TestProviderChat_HistoryCanonicalizationMatrix(t *testing.T) {
 			t.Fatalf("len(messages) = %d, want %d", len(msgs), len(baseMessages))
 		}
 
-		if _, ok := msgs[1]["reasoning_content"]; ok {
+		// DeepSeek v4 thinking models require reasoning_content to be passed back.
+		// Non-thinking models never produce it, so preserving is always safe.
+		if msgs[1]["reasoning_content"] != "plain thought" {
 			t.Fatalf(
-				"turn1 reasoning_content should be stripped for DeepSeek non-tool turn, got %v",
+				"turn1 reasoning_content = %v, want preserved as 'plain thought'",
 				msgs[1]["reasoning_content"],
 			)
 		}
