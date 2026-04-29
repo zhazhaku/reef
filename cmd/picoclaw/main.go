@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/agent"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/auth"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui"
+	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/client"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cron"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/gateway"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/mcp"
@@ -87,6 +88,7 @@ picoclaw --no-color status`,
 		onboard.NewOnboardCommand(),
 		agent.NewAgentCommand(),
 		auth.NewAuthCommand(),
+		client.NewClientCommand(),
 		gateway.NewGatewayCommand(),
 		server.NewServerCommand(),
 		status.NewStatusCommand(),
