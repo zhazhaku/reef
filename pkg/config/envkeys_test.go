@@ -72,17 +72,25 @@ func TestGetOrCreateHome_FallbackToHome(t *testing.T) {
 
 	got := GetOrCreateHome()
 
-	// GetOrCreateHome tries exe dir first. If the exe dir is writable
-	// (e.g., /tmp/go-build.../), it will create .picoclaw there.
-	// If not, it falls back to ~/.picoclaw.
+	// GetOrCreateHome tries these locations in order:
+	// 1. exe dir (.picoclaw next to executable)
+	// 2. cwd (.picoclaw in current working directory, created if writable)
+	// 3. ~/.picoclaw
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 	portableHome := filepath.Join(exeDir, ".picoclaw")
+	wd, _ := os.Getwd()
+	cwdHome := filepath.Join(wd, ".picoclaw")
 
 	if got == portableHome {
 		// Portable mode succeeded — .picoclaw should exist next to exe
 		if _, err := os.Stat(portableHome); os.IsNotExist(err) {
 			t.Errorf("expected %s to exist after GetOrCreateHome", portableHome)
+		}
+	} else if got == cwdHome {
+		// CWD mode succeeded — .picoclaw should exist in cwd
+		if _, err := os.Stat(cwdHome); os.IsNotExist(err) {
+			t.Errorf("expected %s to exist after GetOrCreateHome", cwdHome)
 		}
 	} else if got == filepath.Join("/tmp/test-home", ".picoclaw") {
 		// Fell back to ~/.picoclaw

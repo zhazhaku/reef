@@ -60,7 +60,17 @@ func GetHome() string {
 		}
 	}
 
-	// 3. Default: ~/.picoclaw
+	// 3. Check for existing .picoclaw in the current working directory.
+	//    This supports running the program from a project/workspace directory
+	//    that contains its own .picoclaw configuration.
+	if wd, err := os.Getwd(); err == nil {
+		cwdHome := filepath.Join(wd, pkg.DefaultPicoClawHome)
+		if info, err := os.Stat(cwdHome); err == nil && info.IsDir() {
+			return cwdHome
+		}
+	}
+
+	// 4. Default: ~/.picoclaw
 	homePath, _ := os.UserHomeDir()
 	if homePath != "" {
 		return filepath.Join(homePath, pkg.DefaultPicoClawHome)
@@ -70,7 +80,7 @@ func GetHome() string {
 }
 
 // GetOrCreateHome returns the picoclaw home directory, creating it if necessary.
-// Priority: $PICOCLAW_HOME > .picoclaw next to exe (create if writable) > ~/.picoclaw
+// Priority: $PICOCLAW_HOME > .picoclaw next to exe (create if writable) > .picoclaw in cwd (create if writable) > ~/.picoclaw
 // This is used by onboard to ensure fresh installs default to the exe directory
 // when it is writable (embedded devices, Android, portable deployments).
 func GetOrCreateHome() string {
@@ -86,13 +96,21 @@ func GetOrCreateHome() string {
 		if info, err := os.Stat(portableHome); err == nil && info.IsDir() {
 			return portableHome
 		}
-		// Not yet created — try to create it (first-run onboard)
-		if err := os.MkdirAll(portableHome, 0o755); err == nil {
-			return portableHome
+	}
+
+	// 3. Check for existing .picoclaw in the current working directory
+	if wd, err := os.Getwd(); err == nil {
+		cwdHome := filepath.Join(wd, pkg.DefaultPicoClawHome)
+		if info, err := os.Stat(cwdHome); err == nil && info.IsDir() {
+			return cwdHome
+		}
+		// Not yet created — try to create it in cwd (first-run onboard)
+		if err := os.MkdirAll(cwdHome, 0o755); err == nil {
+			return cwdHome
 		}
 	}
 
-	// 3. Default: ~/.picoclaw
+	// 4. Default: ~/.picoclaw
 	homePath, _ := os.UserHomeDir()
 	if homePath != "" {
 		return filepath.Join(homePath, pkg.DefaultPicoClawHome)
