@@ -1,4 +1,4 @@
-//go:build (darwin || freebsd || android) && !cgo
+//go:build (darwin || freebsd) && !cgo || android
 
 package main
 

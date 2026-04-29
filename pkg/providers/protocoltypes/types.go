@@ -26,13 +26,14 @@ type FunctionCall struct {
 }
 
 type LLMResponse struct {
-	Content          string            `json:"content"`
-	ReasoningContent string            `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
-	FinishReason     string            `json:"finish_reason"`
-	Usage            *UsageInfo        `json:"usage,omitempty"`
-	Reasoning        string            `json:"reasoning"`
-	ReasoningDetails []ReasoningDetail `json:"reasoning_details"`
+	Content                string            `json:"content"`
+	ReasoningContent       string            `json:"reasoning_content,omitempty"`
+	ReasoningContentPresent bool           `json:"reasoning_content_present,omitempty"` // True when the API returned reasoning_content field (even if empty). DeepSeek thinking mode requires this to be round-tripped.
+	ToolCalls              []ToolCall        `json:"tool_calls,omitempty"`
+	FinishReason           string            `json:"finish_reason"`
+	Usage                  *UsageInfo        `json:"usage,omitempty"`
+	Reasoning              string            `json:"reasoning"`
+	ReasoningDetails       []ReasoningDetail `json:"reasoning_details"`
 }
 
 type ReasoningDetail struct {
@@ -84,9 +85,13 @@ type Message struct {
 	Media            []string       `json:"media,omitempty"`
 	Attachments      []Attachment   `json:"attachments,omitempty"`
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	SystemParts      []ContentBlock `json:"system_parts,omitempty"` // structured system blocks for cache-aware adapters
-	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	// ReasoningContentPresent is true when the model returned a reasoning_content
+	// field (even if empty). DeepSeek thinking mode requires this to be
+	// round-tripped — the field must exist in subsequent requests.
+	ReasoningContentPresent bool           `json:"reasoning_content_present,omitempty"`
+	SystemParts             []ContentBlock `json:"system_parts,omitempty"` // structured system blocks for cache-aware adapters
+	ToolCalls               []ToolCall     `json:"tool_calls,omitempty"`
+	ToolCallID              string         `json:"tool_call_id,omitempty"`
 
 	// Prompt metadata is internal to the agent runtime. It records where a
 	// message or system part came from without changing provider/session JSON.

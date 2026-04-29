@@ -539,11 +539,12 @@ func parseStreamResponse(
 	}
 
 	return &LLMResponse{
-		Content:          textContent.String(),
-		ReasoningContent: reasoningContent.String(),
-		ToolCalls:        toolCalls,
-		FinishReason:     finishReason,
-		Usage:            usage,
+		Content:                 textContent.String(),
+		ReasoningContent:        reasoningContent.String(),
+		ReasoningContentPresent: true, // DeepSeek v4 thinking mode: signal that reasoning_content was present (even if empty)
+		ToolCalls:               toolCalls,
+		FinishReason:            finishReason,
+		Usage:                   usage,
 	}, nil
 }
 

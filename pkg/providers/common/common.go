@@ -316,13 +316,14 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 	}
 
 	return &LLMResponse{
-		Content:          choice.Message.Content,
-		ReasoningContent: choice.Message.ReasoningContent,
-		Reasoning:        choice.Message.Reasoning,
-		ReasoningDetails: choice.Message.ReasoningDetails,
-		ToolCalls:        toolCalls,
-		FinishReason:     normalizeFinishReason(choice.FinishReason),
-		Usage:            apiResponse.Usage,
+		Content:                 choice.Message.Content,
+		ReasoningContent:        choice.Message.ReasoningContent,
+		ReasoningContentPresent: true,
+		Reasoning:               choice.Message.Reasoning,
+		ReasoningDetails:        choice.Message.ReasoningDetails,
+		ToolCalls:               toolCalls,
+		FinishReason:            normalizeFinishReason(choice.FinishReason),
+		Usage:                   apiResponse.Usage,
 	}, nil
 }
 
