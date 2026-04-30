@@ -64,6 +64,18 @@ func (t *ReefSubmitTaskTool) Parameters() map[string]any {
 				"type":        "integer",
 				"description": "Maximum execution time in milliseconds. Default: 300000 (5 minutes).",
 			},
+			"reply_to_channel": map[string]any{
+				"type":        "string",
+				"description": "Optional: channel to send result back to (e.g., 'feishu', 'telegram').",
+			},
+			"reply_to_chat_id": map[string]any{
+				"type":        "string",
+				"description": "Optional: chat ID to send result back to.",
+			},
+			"reply_to_message_id": map[string]any{
+				"type":        "string",
+				"description": "Optional: message ID to reply to in thread.",
+			},
 		},
 		"required": []string{"instruction"},
 	}
@@ -111,10 +123,21 @@ func (t *ReefSubmitTaskTool) Execute(ctx context.Context, args map[string]any) *
 		timeoutMs = 300_000 // 5 minutes default
 	}
 
+	replyToChannel, _ := args["reply_to_channel"].(string)
+	replyToChatID, _ := args["reply_to_chat_id"].(string)
+	replyToMsgID, _ := args["reply_to_message_id"].(string)
+
 	opts := reef.TaskOptions{
 		MaxRetries: 2,
 		TimeoutMs:  timeoutMs,
 		ModelHint:  modelHint,
+	}
+	if replyToChannel != "" || replyToChatID != "" {
+		opts.ReplyTo = &reef.ReplyToContext{
+			Channel:   replyToChannel,
+			ChatID:    replyToChatID,
+			MessageID: replyToMsgID,
+		}
 	}
 
 	taskID, err := t.bridge.SubmitTask(instruction, requiredRole, requiredSkills, opts)

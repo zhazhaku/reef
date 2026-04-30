@@ -98,12 +98,12 @@ status: in-progress
 
 ### 3.1 GatewayBridge 完善
 
-- [ ] **3.1.1** 修改 `pkg/reef/server/gateway.go`（不存在则创建）：定义 `GatewayBridge` 结构体
-- [ ] **3.1.2** 实现 `NewGatewayBridge(cfg GatewayConfig, pCfg *config.Config, scheduler *Scheduler)` — 初始化 MessageBus + AgentLoop
-- [ ] **3.1.3** 实现 `Start(ctx)` — 启动频道监听器（复用 picoclaw channel manager）
-- [ ] **3.1.4** 实现 `Stop(ctx)` — 优雅关闭
-- [ ] **3.1.5** 创建 `gateway_test.go`：测试 GatewayBridge 生命周期
-- [ ] **3.1.6** 编译 + 测试
+ - [x] **3.1.1** 修改 `pkg/reef/server/gateway.go`（不存在则创建）：定义 `GatewayBridge` 结构体
+ - [x] **3.1.2** 实现 `NewGatewayBridge(cfg GatewayConfig, pCfg *config.Config, scheduler *Scheduler)` — 初始化 MessageBus + AgentLoop
+ - [x] **3.1.3** 实现 `Start(ctx)` — 启动频道监听器（复用 picoclaw channel manager）
+ - [x] **3.1.4** 实现 `Stop(ctx)` — 优雅关闭
+ - [x] **3.1.5** 创建 `gateway_test.go`：测试 GatewayBridge 生命周期
+ - [x] **3.1.6** 编译 + 测试
 
 ### 3.2 ReplyTo 上下文追踪
 
@@ -113,8 +113,8 @@ status: in-progress
 - [ ] **3.2.4** 修改 `pkg/reef/server/store/store.go`：增加 `SaveReplyTo`/`GetReplyTo` 方法
 - [ ] **3.2.5** 修改 `pkg/reef/server/store/sqlite.go`：实现新方法 + 创建 `task_reply_to` 表
 - [ ] **3.2.6** 修改 `pkg/reef/server/store/memory.go`：实现新方法
-- [ ] **3.2.7** 修改 `pkg/tools/reef_tools.go`：`reef_submit_task` 从 InboundMessage 提取来源并存入 ReplyTo
-- [ ] **3.2.8** 修改 `pkg/channels/swarm/swarm.go`：`dispatchTask` 携带 reply_to
+ - [x] **3.2.7** 修改 `pkg/tools/reef_tools.go`：`reef_submit_task` 从 InboundMessage 提取来源并存入 ReplyTo
+ - [x] **3.2.8** 修改 `pkg/channels/swarm/swarm.go`：`dispatchTask` 携带 reply_to
 - [x] **3.2.9** 创建 `reply_to_test.go`：测试 ReplyTo 上下文持久化 + 透传
 
 ### 3.3 结果回传

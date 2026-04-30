@@ -419,6 +419,7 @@ func msgTaskDispatch(task *reef.Task) reef.Message {
 		TimeoutMs:      task.TimeoutMs,
 		ModelHint:      task.ModelHint,
 		CreatedAt:      task.CreatedAt.UnixMilli(),
+		ReplyTo:        task.ReplyTo,
 	})
 	return msg
 }
