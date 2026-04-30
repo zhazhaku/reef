@@ -307,6 +307,36 @@ while true; do
 done
 ```
 
+### GET /admin/tasks?priority=N
+
+Filter tasks by priority level (1-10). Can be combined with `?status=` and `?role=`.
+
+**Response:**
+```json
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "instruction": "Search for latest AI news",
+      "status": "completed",
+      "priority": 8,
+      "role": "executor",
+      "client": "client-001",
+      "created": 1714435200,
+      "completed": 1714435230
+    }
+  ]
+}
+```
+
+### Web UI Routes
+
+Reef v2.0 includes a unified Web UI accessible at `http://<admin-addr>/reef`:
+- `/reef/overview` — System status cards, connected clients, task statistics
+- `/reef/tasks` — Searchable task list with status/priority filtering
+- `/reef/clients` — Connected client list with role/skills/capacity
+- SSE event stream at `/api/reef/events` — Real-time updates for task lifecycle
+
 ## Web UI API (v2.0)
 
 The Web UI exposes REST APIs at the Admin port. These are used by the embedded dashboard but are also available for programmatic access.
@@ -415,3 +445,38 @@ events.addEventListener('stats_update', (e) => {
   console.log(`Queue depth: ${stats.queue_depth}`);
 });
 ```
+
+
+---
+
+## v2.0 New Endpoints
+
+### GET /admin/tasks?priority=N
+
+Filter tasks by priority level (1-10). Can be combined with `?status=` and `?role=`.
+
+**Response:**
+```json
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "instruction": "Search for latest AI news",
+      "status": "completed",
+      "priority": 8,
+      "role": "executor",
+      "client": "client-001",
+      "created": 1714435200,
+      "completed": 1714435230
+    }
+  ]
+}
+```
+
+### Web UI Routes
+
+Reef v2.0 includes a unified Web UI accessible at `http://<admin-addr>/reef`:
+- `/reef/overview` — System status cards, connected clients, task statistics
+- `/reef/tasks` — Searchable task list with status/priority filtering
+- `/reef/clients` — Connected client list with role/skills/capacity
+- SSE event stream at `/api/reef/events` — Real-time updates for task lifecycle

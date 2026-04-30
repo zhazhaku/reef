@@ -138,6 +138,86 @@ sudo systemctl enable --now reef-server
 sudo systemctl enable --now reef-client
 ```
 
+## Priority & Strategy Configuration
+
+Reef v2.0 supports priority-based task scheduling and configurable match strategies.
+
+**Priority Levels (1-10, default 5):**
+- 1-3: Low priority (background tasks)
+- 4-6: Normal priority
+- 7-9: High priority
+- 10: Critical
+
+**Match Strategies:**
+- `least-load` (default): Assigns task to client with lowest current load
+- `round-robin`: Cycles through available clients
+- `affinity`: Prefers clients with successful task history
+
+**Configuration in config.json:**
+```json
+{
+  "channels": {
+    "swarm": {
+      "strategy": "least-load",
+      "default_timeout_ms": 300000,
+      "timeout_scan_sec": 10,
+      "starvation_boost_ms": 60000
+    }
+  }
+}
+```
+
+**CLI flags:**
+```bash
+reef server --strategy least-load --task-timeout 300000 --timeout-scan 10
+```
+
+**Data Directory:**
+- Reef uses `$REEF_HOME` environment variable (defaults: `~/.reef`)
+- Backward compatible: `$PICOCLAW_HOME` is checked if `$REEF_HOME` is unset
+- SQLite persistent store: `$REEF_HOME/reef_store.db`
+
+### Priority & Strategy Configuration
+
+Reef v2.0 supports priority-based task scheduling and configurable match strategies.
+
+**Priority Levels (1-10, default 5):**
+- 1-3: Low priority (background tasks)
+- 4-6: Normal priority
+- 7-9: High priority
+- 10: Critical
+
+**Match Strategies:**
+- `least-load` (default): Assigns task to client with lowest current load
+- `round-robin`: Cycles through available clients
+- `affinity`: Prefers clients with successful task history
+
+**Configuration in config.json:**
+```json
+{
+  "channels": {
+    "swarm": {
+      "strategy": "least-load",
+      "default_timeout_ms": 300000,
+      "timeout_scan_sec": 10,
+      "starvation_boost_ms": 60000
+    }
+  }
+}
+```
+
+**CLI flags:**
+```bash
+reef server --strategy least-load --task-timeout 300000 --timeout-scan 10
+```
+
+**Data Directory:**
+- Reef uses `$REEF_HOME` environment variable (defaults: `~/.reef`)
+- Backward compatible: `$PICOCLAW_HOME` is checked if `$REEF_HOME` is unset
+- SQLite persistent store: `$REEF_HOME/reef_store.db`
+
+---
+
 ## Multi-Node Cluster
 
 For a production cluster with multiple Server and Client nodes:

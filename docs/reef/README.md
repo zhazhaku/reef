@@ -2,6 +2,16 @@
 
 Reef is a distributed multi-agent orchestration system built into PicoClaw. It enables a fleet of PicoClaw nodes to collaborate as a swarm, with tasks automatically routed to the best-fit agent based on role, skills, and current load.
 
+## 🚀 v2.0 Features
+
+- **Priority Scheduling**: Task prioritization (1-10) with configurable match strategies
+- **DAG Workflow Engine**: Parent/subtask orchestration with dependency management
+- **Persistent State**: SQLite-backed task queue with automatic recovery on restart
+- **Result Routing**: Bidirectional result delivery via ReplyTo context
+- **Web Dashboard**: Real-time swarm monitoring with SSE event stream
+- **Hermes Coordinator**: AI-powered task delegation to connected agents
+- **Multi-Strategy**: LeastLoad / RoundRobin / Affinity client selection
+
 ## Table of Contents
 
 - [Overview](#overview)
