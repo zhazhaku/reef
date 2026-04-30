@@ -393,10 +393,10 @@
 
 ### 7.2 文档整合
 
-- [ ] **7.2.1** 更新 `docs/reef/README.md`：v2.0 特性概览
-- [ ] **7.2.2** 更新 `docs/reef/deployment.md`：完整部署指南
-- [ ] **7.2.3** 更新 `docs/reef/api.md`：v2 API 变更
-- [ ] **7.2.4** 更新 `CHANGELOG.md`：v2.0 完整变更记录
+ - [x] **7.2.1** 更新 `docs/reef/README.md`：v2.0 特性概览
+ - [x] **7.2.2** 更新 `docs/reef/deployment.md`：完整部署指南
+ - [x] **7.2.3** 更新 `docs/reef/api.md`：v2 API 变更
+ - [x] **7.2.4** 更新 `CHANGELOG.md`：v2.0 完整变更记录
 - [ ] **7.2.5** `make lint-docs` 验证
 
 ### 7.3 Docker 更新
@@ -409,7 +409,7 @@
 
  - [x] **7.4.1** Git commit：按 Phase 分别提交
 - [ ] **7.4.2** Git push
-- [ ] **7.4.3** 更新 `.planning/STATE.md`
+ - [x] **7.4.3** 更新 `.planning/STATE.md`
 
 ---
 
