@@ -120,6 +120,7 @@ type TaskDispatchPayload struct {
 	TimeoutMs      int64             `json:"timeout_ms"`
 	ModelHint      string            `json:"model_hint,omitempty"`
 	CreatedAt      int64             `json:"created_at"`
+	ReplyTo        *ReplyToContext   `json:"reply_to,omitempty"`
 }
 
 // TaskProgressPayload is sent by Client to report task execution progress.

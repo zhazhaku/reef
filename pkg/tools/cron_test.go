@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/cron"
 )
 
 type stubJobExecutor struct {

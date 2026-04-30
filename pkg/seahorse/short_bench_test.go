@@ -35,7 +35,7 @@ func BenchmarkIngest_SingleMessage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := s.AddMessage(ctx, convID, "user", "Test message content", 15)
+		_, err := s.AddMessage(ctx, convID, "user", "Test message content", "", false, 15)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func BenchmarkIngest_BatchMessages(b *testing.B) {
 
 		for j := 0; j < 10; j++ {
 			added, err := s.AddMessage(ctx, convID, "user",
-				fmt.Sprintf("Message %d in batch", j), 10)
+				fmt.Sprintf("Message %d in batch", j), "", false, 10)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func BenchmarkAssemble_MessagesOnly(b *testing.B) {
 	// Add 100 messages
 	for i := 0; i < 100; i++ {
 		m, _ := s.AddMessage(ctx, convID, "user",
-			fmt.Sprintf("Message content %d with some text", i), 10)
+			fmt.Sprintf("Message content %d with some text", i), "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -116,7 +116,7 @@ func BenchmarkAssemble_WithSummaries(b *testing.B) {
 
 	// Add 20 fresh messages
 	for i := 0; i < 20; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("Fresh message %d", i), 10)
+		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("Fresh message %d", i), "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -157,7 +157,7 @@ func BenchmarkAssemble_BudgetEviction(b *testing.B) {
 
 	// Add fresh tail
 	for i := 0; i < FreshTailCount; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -250,7 +250,7 @@ func BenchmarkSearchMessages_FTS5(b *testing.B) {
 	// Add 500 messages
 	for i := 0; i < 500; i++ {
 		m, _ := s.AddMessage(ctx, convID, "user",
-			fmt.Sprintf("User message about API and database integration %d", i), 20)
+			fmt.Sprintf("User message about API and database integration %d", i), "", false, 20)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -303,7 +303,7 @@ func BenchmarkBootstrap_100Messages(b *testing.B) {
 		convID := conv.ConversationID
 
 		for _, m := range msgs {
-			added, _ := s.AddMessage(ctx, convID, m.Role, m.Content, m.TokenCount)
+			added, _ := s.AddMessage(ctx, convID, m.Role, m.Content, "", false, m.TokenCount)
 			s.AppendContextMessage(ctx, convID, added.ID)
 		}
 	}
@@ -329,7 +329,7 @@ func BenchmarkBootstrap_500Messages(b *testing.B) {
 		convID := conv.ConversationID
 
 		for _, m := range msgs {
-			added, _ := s.AddMessage(ctx, convID, m.Role, m.Content, m.TokenCount)
+			added, _ := s.AddMessage(ctx, convID, m.Role, m.Content, "", false, m.TokenCount)
 			s.AppendContextMessage(ctx, convID, added.ID)
 		}
 	}

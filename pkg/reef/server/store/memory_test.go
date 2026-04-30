@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func newTestTask(id string, status reef.TaskStatus, role string) *reef.Task {

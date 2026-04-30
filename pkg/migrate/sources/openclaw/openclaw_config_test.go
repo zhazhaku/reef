@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/zhazhaku/reef/pkg/config"
 )
 
 func TestLoadOpenClawConfig(t *testing.T) {

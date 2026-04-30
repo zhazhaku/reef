@@ -64,9 +64,9 @@ func TestFTS5SpecialCharsShouldNotError(t *testing.T) {
 	re := &RetrievalEngine{store: s}
 
 	// Seed data with content containing special characters
-	s.AddMessage(ctx, conv.ConversationID, "user", "the sub-agent restarted after crash", 10)
-	s.AddMessage(ctx, conv.ConversationID, "assistant", "agent:main session restored successfully", 10)
-	s.AddMessage(ctx, conv.ConversationID, "user", "use NOT operator in the query filter", 10)
+	s.AddMessage(ctx, conv.ConversationID, "user", "the sub-agent restarted after crash", "", false, 10)
+	s.AddMessage(ctx, conv.ConversationID, "assistant", "agent:main session restored successfully", "", false, 10)
+	s.AddMessage(ctx, conv.ConversationID, "user", "use NOT operator in the query filter", "", false, 10)
 	s.CreateSummary(ctx, CreateSummaryInput{
 		ConversationID: conv.ConversationID,
 		Kind:           SummaryKindLeaf,
@@ -159,17 +159,17 @@ func TestFTS5OperatorsNotInterpreted(t *testing.T) {
 	// "restart only" — contains "restart" but NOT "crash".
 	// If OR is treated as boolean, "crash OR restart" would match this.
 	// With sanitization (literal AND), it should NOT match.
-	s.AddMessage(ctx, conv.ConversationID, "user", "restart the service now please", 10)
+	s.AddMessage(ctx, conv.ConversationID, "user", "restart the service now please", "", false, 10)
 
 	// "subcommand" — starts with "sub" but is not "sub-agent".
 	// If * is treated as prefix wildcard, "sub*" would match this.
 	// With sanitization (literal "sub*"), it should NOT match.
-	s.AddMessage(ctx, conv.ConversationID, "user", "run the subcommand to deploy", 10)
+	s.AddMessage(ctx, conv.ConversationID, "user", "run the subcommand to deploy", "", false, 10)
 
 	// "agent grouped" — contains "agent" but not "(agent)".
 	// If () is treated as grouping, "(agent)" would match this.
 	// With sanitization (literal "(agent)"), it should NOT match.
-	s.AddMessage(ctx, conv.ConversationID, "user", "the agent processed the request", 10)
+	s.AddMessage(ctx, conv.ConversationID, "user", "the agent processed the request", "", false, 10)
 
 	// Same patterns in summaries
 	s.CreateSummary(ctx, CreateSummaryInput{

@@ -8,15 +8,15 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/isolation"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/memory"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/isolation"
+	"github.com/zhazhaku/reef/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/media"
+	"github.com/zhazhaku/reef/pkg/memory"
+	"github.com/zhazhaku/reef/pkg/providers"
+	"github.com/zhazhaku/reef/pkg/routing"
+	"github.com/zhazhaku/reef/pkg/session"
+	"github.com/zhazhaku/reef/pkg/tools"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,

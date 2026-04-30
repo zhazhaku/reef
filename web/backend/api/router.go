@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/web/backend/launcherconfig"
+	"github.com/zhazhaku/reef/web/backend/launcherconfig"
 )
 
 // Handler serves HTTP API requests.
@@ -107,6 +107,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// WeCom QR login flow
 	h.registerWecomRoutes(mux)
+
+	// Reef swarm orchestration
+	h.registerReefRoutes(mux)
 }
 
 // Shutdown gracefully shuts down the handler, stopping the gateway if it was started by this handler.

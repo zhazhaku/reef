@@ -4,7 +4,7 @@ import githubDarkCss from "highlight.js/styles/github-dark.css?inline"
 import githubLightCss from "highlight.js/styles/github.css?inline"
 
 const THEME_STYLE_ID = "hljs-theme-style"
-const THEME_STYLE_OWNER_ATTR = "data-picoclaw-highlight-theme"
+const THEME_STYLE_OWNER_ATTR = "data-reef-highlight-theme"
 const THEME_STYLE_OWNER_VALUE = "true"
 const MANAGED_THEME_STYLE_SELECTOR = `style[${THEME_STYLE_OWNER_ATTR}="${THEME_STYLE_OWNER_VALUE}"]`
 const ID_THEME_STYLE_SELECTOR = `style#${THEME_STYLE_ID}`

@@ -66,7 +66,7 @@ export interface ChatStoreState {
 type ChatStorePatch = Partial<ChatStoreState>
 
 // Keep the legacy storage value so existing user preferences survive the rename.
-const SHOW_ASSISTANT_DETAILS_STORAGE_KEY = "picoclaw:chat-show-thoughts"
+const SHOW_ASSISTANT_DETAILS_STORAGE_KEY = "reef:chat-show-thoughts"
 
 const DEFAULT_CHAT_STATE: ChatStoreState = {
   messages: [],

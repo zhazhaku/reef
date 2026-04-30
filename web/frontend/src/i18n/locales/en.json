@@ -13,7 +13,11 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "reef": "Swarm",
+    "reef_overview": "Overview",
+    "reef_tasks": "Tasks",
+    "reef_clients": "Clients"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -737,5 +741,31 @@
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."
     }
+  },
+  "reef": {
+    "overview": "Reef Swarm",
+    "tasks": "Tasks",
+    "clients": "Clients",
+    "loadError": "Failed to load reef data",
+    "refresh": "Refresh",
+    "serverVersion": "Server",
+    "uptime": "Uptime",
+    "recentTasks": "Recent Tasks",
+    "noTasks": "No tasks found",
+    "noClients": "No clients connected",
+    "searchTasks": "Search tasks...",
+    "showingTasks": "Showing {from}-{to} of {total} tasks",
+    "prev": "Previous",
+    "next": "Next",
+    "filterAll": "All",
+    "statusQueued": "Queued",
+    "statusRunning": "Running",
+    "statusCompleted": "Completed",
+    "statusFailed": "Failed",
+    "statusCancelled": "Cancelled",
+    "statusEscalated": "Escalated",
+    "roleCoordinator": "Coordinator",
+    "roleExecutor": "Executor",
+    "roleFull": "Full"
   }
 }

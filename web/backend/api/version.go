@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/web/backend/utils"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/web/backend/utils"
 )
 
 type systemVersionResponse struct {
@@ -163,7 +163,7 @@ func resolveGatewayBinaryForVersionInfo() string {
 		}
 	}
 
-	return utils.FindPicoclawBinary()
+	return utils.FindReefBinary()
 }
 
 func gatewayVersionState() (int, bool) {

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/zhazhaku/reef/pkg/providers/common"
+	"github.com/zhazhaku/reef/pkg/providers/messageutil"
+	"github.com/zhazhaku/reef/pkg/providers/protocoltypes"
 )
 
 type (
@@ -257,14 +257,12 @@ func filterDeepSeekReasoningMessages(messages []Message) []Message {
 func filterDeepSeekReasoningTurn(messages []Message) []Message {
 	out := make([]Message, 0, len(messages))
 	for _, msg := range messages {
-		if messageutil.IsTransientAssistantThoughtMessage(msg) {
-			continue
-		}
-
+		// Do NOT call IsTransientAssistantThoughtMessage here. DeepSeek v4
+		// thinking mode produces reasoning-only assistant messages that MUST
+		// be round-tripped back to the API. Filtering them causes the 400
+		// "reasoning_content in the thinking mode must be passed back" error.
+		// Instead we only drop messages that are truly empty.
 		cloned := msg
-		// DeepSeek v4 thinking models require reasoning_content to be passed
-		// back in the conversation history. Non-thinking models (v3 etc.) never
-		// produce reasoning_content, so preserving it is always safe.
 		if assistantMessageEmpty(cloned) {
 			continue
 		}
@@ -293,6 +291,13 @@ func stripReasoningMessages(messages []Message) []Message {
 }
 
 func assistantMessageEmpty(msg Message) bool {
+	// A message with ReasoningContentPresent is never empty — it carries
+	// the signal that reasoning_content must be round-tripped (DeepSeek
+	// thinking mode). Without this guard, the message would be dropped
+	// even though the API requires the reasoning_content field.
+	if msg.ReasoningContentPresent {
+		return false
+	}
 	return msg.Role == "assistant" &&
 		strings.TrimSpace(msg.Content) == "" &&
 		strings.TrimSpace(msg.ReasoningContent) == "" &&

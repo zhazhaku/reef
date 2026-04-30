@@ -3,14 +3,21 @@ package messageutil
 import (
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/zhazhaku/reef/pkg/providers/protocoltypes"
 )
 
 // IsTransientAssistantThoughtMessage reports whether msg is an invalid
 // reasoning-only assistant history record. These "hanging" thought messages
 // are not a canonical persisted format and should be discarded instead of
 // replayed or reconstructed.
+//
+// IMPORTANT: Messages with ReasoningContentPresent=true are NOT transient.
+// ReasoningContentPresent means the API explicitly returned reasoning_content
+// (DeepSeek thinking mode). Such messages must survive for round-trip.
 func IsTransientAssistantThoughtMessage(msg protocoltypes.Message) bool {
+	if msg.ReasoningContentPresent {
+		return false
+	}
 	return msg.Role == "assistant" &&
 		strings.TrimSpace(msg.Content) == "" &&
 		strings.TrimSpace(msg.ReasoningContent) != "" &&

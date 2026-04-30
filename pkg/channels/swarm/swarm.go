@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/client"
+	"github.com/zhazhaku/reef/pkg/agent"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/channels"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/client"
 )
 
 const (
@@ -510,7 +510,7 @@ func (s *SwarmChannel) reportFailed(taskID string, errorType, errorMsg string, a
 func generateClientID() string {
 	host, _ := os.Hostname()
 	if host == "" {
-		host = "picoclaw"
+		host = "reef"
 	}
 	return fmt.Sprintf("%s-%d", host, time.Now().Unix())
 }

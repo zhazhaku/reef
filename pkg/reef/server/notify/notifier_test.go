@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func testAlert() Alert {

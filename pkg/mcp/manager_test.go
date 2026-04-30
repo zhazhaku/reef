@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/zhazhaku/reef/pkg/config"
 )
 
 func TestLoadEnvFile(t *testing.T) {
@@ -415,7 +415,7 @@ func newScriptedServerConnection(
 	}
 
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{
-		Name:    "picoclaw-test",
+		Name:    "reef-test",
 		Version: "1.0.0",
 	}, nil)
 	session, err := client.Connect(context.Background(), transport, nil)

@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 package config
 
@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"path/filepath"
 
-	"github.com/sipeed/picoclaw/pkg"
+	"github.com/zhazhaku/reef/pkg"
 )
 
-// DefaultConfig returns the default configuration for PicoClaw.
+// DefaultConfig returns the default configuration for Reef.
 func DefaultConfig() *Config {
 	workspacePath := filepath.Join(GetHome(), pkg.WorkspaceName)
 
@@ -548,7 +548,7 @@ func defaultChannels() ChannelsConfig {
 			"settings": map[string]any{
 				"server":   "",
 				"tls":      true,
-				"nick":     "picoclaw",
+				"nick":     "reef",
 				"channels": []string{},
 			},
 		},

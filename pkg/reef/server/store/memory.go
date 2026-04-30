@@ -4,21 +4,25 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // MemoryStore is a thread-safe in-memory implementation of TaskStore.
 type MemoryStore struct {
-	mu       sync.RWMutex
-	tasks    map[string]*reef.Task
-	attempts map[string][]reef.AttemptRecord
+	mu        sync.RWMutex
+	tasks     map[string]*reef.Task
+	attempts  map[string][]reef.AttemptRecord
+	relations map[string][]string // parentID → []childID
+	parentOf  map[string]string   // childID → parentID
 }
 
 // NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		tasks:    make(map[string]*reef.Task),
-		attempts: make(map[string][]reef.AttemptRecord),
+		tasks:     make(map[string]*reef.Task),
+		attempts:  make(map[string][]reef.AttemptRecord),
+		relations: make(map[string][]string),
+		parentOf:  make(map[string]string),
 	}
 }
 
@@ -152,5 +156,30 @@ func (m *MemoryStore) Close() error {
 	defer m.mu.Unlock()
 	m.tasks = make(map[string]*reef.Task)
 	m.attempts = make(map[string][]reef.AttemptRecord)
+	m.relations = make(map[string][]string)
+	m.parentOf = make(map[string]string)
 	return nil
+}
+
+// SaveRelation records a parent-child relationship.
+func (m *MemoryStore) SaveRelation(parentID, childID, dependency string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.relations[parentID] = append(m.relations[parentID], childID)
+	m.parentOf[childID] = parentID
+	return nil
+}
+
+// GetSubTaskIDs returns all child task IDs for a parent.
+func (m *MemoryStore) GetSubTaskIDs(parentID string) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.relations[parentID], nil
+}
+
+// GetParentTaskID returns the parent task ID for a child.
+func (m *MemoryStore) GetParentTaskID(childID string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.parentOf[childID], nil
 }

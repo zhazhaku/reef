@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/logger"
 )
 
 // GetPicoclawHome returns the picoclaw home directory.
@@ -27,15 +27,15 @@ func GetDefaultConfigPath() string {
 	return filepath.Join(GetPicoclawHome(), "config.json")
 }
 
-// FindPicoclawBinary locates the picoclaw executable.
+// FindReefBinary locates the reef executable.
 // Search order:
-//  1. PICOCLAW_BINARY environment variable (explicit override)
+//  1. REEF_BINARY environment variable (explicit override)
 //  2. Same directory as the current executable
-//  3. Falls back to "picoclaw" and relies on $PATH
-func FindPicoclawBinary() string {
-	binaryName := "picoclaw"
+//  3. Falls back to "reef" and relies on $PATH
+func FindReefBinary() string {
+	binaryName := "reef"
 	if runtime.GOOS == "windows" {
-		binaryName = "picoclaw.exe"
+		binaryName = "reef.exe"
 	}
 
 	if p := os.Getenv(config.EnvBinary); p != "" {

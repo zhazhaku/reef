@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/zhazhaku/reef/pkg/auth"
+	"github.com/zhazhaku/reef/pkg/config"
 )
 
 func TestOAuthLoginRejectsUnsupportedMethod(t *testing.T) {

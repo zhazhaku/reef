@@ -12,7 +12,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/logger"
 )
 
 // Config holds engine configuration.
@@ -253,9 +253,9 @@ func (e *Engine) Ingest(ctx context.Context, sessionKey string, messages []Messa
 		var added *Message
 		var err error
 		if len(msg.Parts) > 0 {
-			added, err = e.store.AddMessageWithParts(ctx, conv.ConversationID, msg.Role, msg.Parts, msg.TokenCount)
+			added, err = e.store.AddMessageWithParts(ctx, conv.ConversationID, msg.Role, msg.Parts, msg.ReasoningContent, msg.ReasoningContentPresent, msg.TokenCount)
 		} else {
-			added, err = e.store.AddMessage(ctx, conv.ConversationID, msg.Role, msg.Content, msg.TokenCount)
+			added, err = e.store.AddMessage(ctx, conv.ConversationID, msg.Role, msg.Content, msg.ReasoningContent, msg.ReasoningContentPresent, msg.TokenCount)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("add message: %w", err)
@@ -532,13 +532,17 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// messageMatches compares two messages using (role, content) or (role, parts).
+// messageMatches compares two messages using (role, content, reasoning).
 // TokenCount is NOT compared because it may be re-estimated differently
 // during bootstrap (e.g., via tokenizer.EstimateMessageTokens).
 // For messages with Parts (tool_use, tool_result), compare Parts instead of Content
 // since AddMessageWithParts stores empty Content in DB.
 func messageMatches(a, b Message) bool {
 	if a.Role != b.Role {
+		return false
+	}
+	// Compare reasoning fields (critical for DeepSeek thinking mode round-trip)
+	if a.ReasoningContent != b.ReasoningContent || a.ReasoningContentPresent != b.ReasoningContentPresent {
 		return false
 	}
 	// If either message has Parts, compare Parts

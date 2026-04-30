@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/channels"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/media"
+	"github.com/zhazhaku/reef/pkg/providers"
+	"github.com/zhazhaku/reef/pkg/routing"
+	"github.com/zhazhaku/reef/pkg/session"
+	"github.com/zhazhaku/reef/pkg/tools"
+	"github.com/zhazhaku/reef/pkg/utils"
 )
 
 type fakeChannel struct{ id string }

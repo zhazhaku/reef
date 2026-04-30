@@ -10,9 +10,9 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	orc "github.com/sipeed/picoclaw/pkg/providers/openai_responses_common"
+	"github.com/zhazhaku/reef/pkg/auth"
+	"github.com/zhazhaku/reef/pkg/logger"
+	orc "github.com/zhazhaku/reef/pkg/providers/openai_responses_common"
 )
 
 const (

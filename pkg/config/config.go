@@ -14,9 +14,9 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/sipeed/picoclaw/pkg"
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/zhazhaku/reef/pkg"
+	"github.com/zhazhaku/reef/pkg/fileutil"
+	"github.com/zhazhaku/reef/pkg/logger"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.

@@ -10,8 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sipeed/picoclaw/pkg/media"
-	toolshared "github.com/sipeed/picoclaw/pkg/tools/shared"
+	"github.com/zhazhaku/reef/pkg/media"
+	toolshared "github.com/zhazhaku/reef/pkg/tools/shared"
 )
 
 // MockMCPManager is a mock implementation of MCPManager interface for testing

@@ -1,4 +1,5 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Distributed multi-agent swarm orchestration system
+// Based on PicoClaw (github.com/sipeed/picoclaw)
 //
 // ServerBridge implements reef.ReefBridge by delegating to the
 // in-process Scheduler and Registry. Used when the AgentLoop
@@ -10,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // ServerBridge implements reef.ReefBridge for in-process access.
@@ -50,6 +51,9 @@ func (b *ServerBridge) SubmitTask(instruction string, requiredRole string, requi
 	}
 	if opts.ModelHint != "" {
 		task.ModelHint = opts.ModelHint
+	}
+	if opts.ReplyTo != nil && !opts.ReplyTo.IsZero() {
+		task.ReplyTo = opts.ReplyTo
 	}
 
 	if err := b.scheduler.Submit(task); err != nil {

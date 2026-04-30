@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // MockClient simulates a Reef Client node over real WebSocket.

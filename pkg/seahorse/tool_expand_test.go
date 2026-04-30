@@ -12,8 +12,8 @@ func TestExpandToolByMessageIDs(t *testing.T) {
 	ctx := context.Background()
 	conv, _ := s.GetOrCreateConversation(ctx, "test:expand-tool")
 
-	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "first message", 10)
-	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "second message", 10)
+	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "first message", "", false, 10)
+	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "second message", "", false, 10)
 
 	re := &RetrievalEngine{store: s}
 	tool := NewExpandTool(re)
@@ -70,7 +70,7 @@ func TestExpandToolWithParts(t *testing.T) {
 		{Type: "tool_use", Name: "bash", Arguments: `{"command":"ls"}`, ToolCallID: "call_123"},
 		{Type: "tool_result", ToolCallID: "call_123", Text: "file1.txt\nfile2.txt"},
 	}
-	msg, _ := s.AddMessageWithParts(ctx, conv.ConversationID, "assistant", parts, 50)
+	msg, _ := s.AddMessageWithParts(ctx, conv.ConversationID, "assistant", parts, "", false, 50)
 
 	re := &RetrievalEngine{store: s}
 	tool := NewExpandTool(re)

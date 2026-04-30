@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestServerBridge_SubmitTask(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestWebSocketServer_PendingControls(t *testing.T) {

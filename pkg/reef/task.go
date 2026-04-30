@@ -10,15 +10,18 @@ import (
 type TaskStatus string
 
 const (
-	TaskCreated   TaskStatus = "Created"
-	TaskQueued    TaskStatus = "Queued"
-	TaskAssigned  TaskStatus = "Assigned"
-	TaskRunning   TaskStatus = "Running"
-	TaskPaused    TaskStatus = "Paused"
-	TaskCompleted TaskStatus = "Completed"
-	TaskFailed    TaskStatus = "Failed"
-	TaskCancelled TaskStatus = "Cancelled"
-	TaskEscalated TaskStatus = "Escalated"
+	TaskCreated     TaskStatus = "Created"
+	TaskQueued      TaskStatus = "Queued"
+	TaskAssigned    TaskStatus = "Assigned"
+	TaskRunning     TaskStatus = "Running"
+	TaskPaused      TaskStatus = "Paused"
+	TaskBlocked     TaskStatus = "Blocked"
+	TaskRecovering  TaskStatus = "Recovering"
+	TaskAggregating TaskStatus = "Aggregating"
+	TaskCompleted   TaskStatus = "Completed"
+	TaskFailed      TaskStatus = "Failed"
+	TaskCancelled   TaskStatus = "Cancelled"
+	TaskEscalated   TaskStatus = "Escalated"
 )
 
 // IsTerminal returns true if the status is a terminal state.
@@ -30,19 +33,27 @@ func (s TaskStatus) IsTerminal() bool {
 	return false
 }
 
+// IsBlocked returns true if the task is in a blocked state.
+func (s TaskStatus) IsBlocked() bool {
+	return s == TaskBlocked
+}
+
 // CanTransitionTo returns true if a transition from the current status
 // to the target status is valid according to the state machine rules.
 func (s TaskStatus) CanTransitionTo(target TaskStatus) bool {
 	valid := map[TaskStatus][]TaskStatus{
-		TaskCreated:   {TaskQueued, TaskAssigned, TaskFailed},
-		TaskQueued:    {TaskAssigned, TaskFailed},
-		TaskAssigned:  {TaskRunning, TaskFailed, TaskQueued},
-		TaskRunning:   {TaskCompleted, TaskFailed, TaskPaused, TaskCancelled, TaskQueued},
-		TaskPaused:    {TaskRunning, TaskFailed, TaskCancelled},
-		TaskCompleted: {},
-		TaskFailed:    {TaskQueued, TaskEscalated}, // reassign via escalation
-		TaskEscalated: {TaskQueued, TaskFailed, TaskCancelled},
-		TaskCancelled: {},
+		TaskCreated:     {TaskQueued, TaskAssigned, TaskFailed, TaskBlocked, TaskAggregating},
+		TaskQueued:      {TaskAssigned, TaskFailed, TaskAggregating},
+		TaskAssigned:    {TaskRunning, TaskFailed, TaskQueued},
+		TaskRunning:     {TaskCompleted, TaskFailed, TaskPaused, TaskCancelled, TaskQueued},
+		TaskPaused:      {TaskRunning, TaskFailed, TaskCancelled},
+		TaskBlocked:     {TaskQueued, TaskFailed, TaskCancelled, TaskRecovering},
+		TaskRecovering:  {TaskQueued, TaskFailed, TaskCancelled, TaskBlocked},
+		TaskAggregating: {TaskCompleted, TaskFailed, TaskCancelled},
+		TaskCompleted:   {},
+		TaskFailed:      {TaskQueued, TaskEscalated},
+		TaskEscalated:   {TaskQueued, TaskFailed, TaskCancelled},
+		TaskCancelled:   {},
 	}
 	allowed, ok := valid[s]
 	if !ok {
@@ -89,7 +100,12 @@ type Task struct {
 	RequiredSkills  []string
 	MaxRetries      int
 	TimeoutMs       int64
-	ModelHint       string // optional: preferred model for execution
+	ModelHint       string   // optional: preferred model for execution
+	Priority        int      // 1-10, higher = more urgent, default 5
+	ParentTaskID    string   // ID of parent task (empty if root)
+	SubTaskIDs      []string // IDs of child sub-tasks
+	Dependencies    []string // IDs of tasks this task depends on
+	ReplyTo         *ReplyToContext // routing info for result delivery
 	AssignedClient  string
 	Result          *TaskResult
 	Error           *TaskError
@@ -112,6 +128,7 @@ func NewTask(id, instruction, requiredRole string, requiredSkills []string) *Tas
 		RequiredSkills: requiredSkills,
 		MaxRetries:     3,
 		TimeoutMs:      300_000, // 5 minutes
+		Priority:       5,       // default medium priority
 		CreatedAt:      time.Now(),
 	}
 }

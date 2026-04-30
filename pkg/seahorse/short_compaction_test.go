@@ -95,7 +95,7 @@ func TestNeedsCompaction(t *testing.T) {
 
 	// Add messages to context, total tokens = 8000
 	for i := 0; i < 8; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "test message content", 1000)
+		m, _ := s.AddMessage(ctx, convID, "user", "test message content", "", false, 1000)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -111,7 +111,7 @@ func TestNeedsCompaction(t *testing.T) {
 	// Below threshold: 5000 / 10000 → no compaction
 	s.UpsertContextItems(ctx, convID, nil) // clear
 	for i := 0; i < 5; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "test", 1000)
+		m, _ := s.AddMessage(ctx, convID, "user", "test", "", false, 1000)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 	needed, _ = ce.NeedsCompaction(ctx, convID, 10000)
@@ -127,7 +127,7 @@ func TestCompactLeaf(t *testing.T) {
 	// Create enough messages to trigger leaf compaction:
 	// Need > FreshTailCount(32) evictable messages with >= LeafMinFanout(8) contiguous
 	for i := 0; i < 40; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "message content for compaction test", 100)
+		m, _ := s.AddMessage(ctx, convID, "user", "message content for compaction test", "", false, 100)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -169,7 +169,7 @@ func TestCompactLeafNoCandidate(t *testing.T) {
 	ctx := context.Background()
 
 	// Too few messages to trigger leaf compaction
-	m, _ := ce.store.AddMessage(ctx, convID, "user", "short", 10)
+	m, _ := ce.store.AddMessage(ctx, convID, "user", "short", "", false, 10)
 	ce.store.AppendContextMessage(ctx, convID, m.ID)
 
 	result, err := ce.Compact(ctx, convID, CompactInput{})
@@ -210,7 +210,7 @@ func TestCompactCondensed(t *testing.T) {
 
 	// Add enough fresh messages to have a fresh tail (>= FreshTailCount)
 	for i := 0; i < FreshTailCount; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh message", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh message", "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -270,7 +270,7 @@ func TestCompactCondensedDoesNotOrphanSummaryWhenCandidatesRemovedConcurrently(t
 
 	// Add fresh tail so leaf summaries are in evictable range
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -403,7 +403,7 @@ func TestSelectShallowestCondensationCandidate(t *testing.T) {
 
 	// Add fresh tail messages so summaries are in evictable range
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -458,7 +458,7 @@ func TestCompactCondensedUsesSelectOldestChunk(t *testing.T) {
 	// for selectShallowestCondensationCandidate but would still find all 3
 	// but selectOldestChunkAtDepth should only find sum1 + sum2 (not sum3)
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "interrupting message", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "interrupting message", "", false, 5)
 	s.AppendContextMessage(ctx, convID, msg.ID)
 
 	// Run compactCondensed
@@ -505,7 +505,7 @@ func TestCompactCondensedUsesOrdinalAwareSelection(t *testing.T) {
 
 	// Add fresh tail
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -538,7 +538,7 @@ func TestSelectOldestChunkAtDepthBreaksOnMessage(t *testing.T) {
 		})
 		s.AppendContextSummary(ctx, convID, summary.SummaryID)
 	}
-	msg, _ := s.AddMessage(ctx, convID, "user", "break", 10)
+	msg, _ := s.AddMessage(ctx, convID, "user", "break", "", false, 10)
 	s.AppendContextMessage(ctx, convID, msg.ID)
 	for i := 0; i < 3; i++ {
 		summary, _ := s.CreateSummary(ctx, CreateSummaryInput{
@@ -551,7 +551,7 @@ func TestSelectOldestChunkAtDepthBreaksOnMessage(t *testing.T) {
 		s.AppendContextSummary(ctx, convID, summary.SummaryID)
 	}
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -579,7 +579,7 @@ func TestSelectOldestChunkAtDepthMinTokens(t *testing.T) {
 
 	// Add fresh tail to protect from compaction
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("tail %d", i), 10)
+		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("tail %d", i), "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -614,7 +614,7 @@ func TestSelectOldestChunkAtDepthPassesMinTokens(t *testing.T) {
 
 	// Add fresh tail
 	for i := 0; i < FreshTailCount+1; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("tail %d", i), 10)
+		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("tail %d", i), "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -803,7 +803,7 @@ func TestCompactAsyncReturnsBeforeCondensed(t *testing.T) {
 		s.AppendContextSummary(ctx, convID, summary.SummaryID)
 	}
 	for i := 0; i < FreshTailCount; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -875,7 +875,7 @@ func TestCompactAsyncDedup(t *testing.T) {
 		s.AppendContextSummary(ctx, convID, summary.SummaryID)
 	}
 	for i := 0; i < FreshTailCount; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -905,7 +905,7 @@ func TestCompactLeafForceBypassesFreshTail(t *testing.T) {
 	// With force: should compact the oldest messages
 	total := FreshTailCount + 4
 	for i := 0; i < total; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("message %d for force test", i), 100)
+		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("message %d for force test", i), "", false, 100)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
@@ -945,6 +945,7 @@ func TestCompactLeafAccumulatesUpToLeafChunkTokens(t *testing.T) {
 				"message %d with lots of content to make it big enough for token counting purposes and this should be a substantial message body that represents a meaningful conversation turn",
 				i,
 			),
+			"", false,
 			500,
 		)
 		s.AppendContextMessage(ctx, convID, m.ID)

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/zhazhaku/reef/pkg/auth"
+	"github.com/zhazhaku/reef/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/providers/common"
 )
 
 const (

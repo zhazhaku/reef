@@ -4,9 +4,9 @@ ARG TARGETPLATFORM
 
 RUN apk add --no-cache ca-certificates tzdata
 
-COPY $TARGETPLATFORM/picoclaw /usr/local/bin/picoclaw
-COPY $TARGETPLATFORM/picoclaw-launcher /usr/local/bin/picoclaw-launcher
-COPY $TARGETPLATFORM/picoclaw-launcher-tui /usr/local/bin/picoclaw-launcher-tui
+COPY $TARGETPLATFORM/reef /usr/local/bin/reef
+COPY $TARGETPLATFORM/reef-launcher /usr/local/bin/reef-launcher
+COPY $TARGETPLATFORM/reef-launcher-tui /usr/local/bin/reef-launcher-tui
 
-ENTRYPOINT ["picoclaw-launcher"]
+ENTRYPOINT ["reef-launcher"]
 CMD ["-console", "-public", "-no-browser"]

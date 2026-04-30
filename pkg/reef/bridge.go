@@ -30,6 +30,7 @@ type TaskOptions struct {
 	TimeoutMs  int64
 	ModelHint  string
 	Context    map[string]any
+	ReplyTo    *ReplyToContext
 }
 
 // TaskSnapshot is a point-in-time view of a task's state.

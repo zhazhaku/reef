@@ -2,13 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // AdminServer exposes HTTP endpoints for observability and control.
@@ -109,6 +110,7 @@ type TaskSummary struct {
 	Status         reef.TaskStatus  `json:"status"`
 	RequiredRole   string           `json:"required_role"`
 	RequiredSkills []string         `json:"required_skills"`
+	Priority       int              `json:"priority"`
 	AssignedClient string           `json:"assigned_client_id,omitempty"`
 	CreatedAt      int64            `json:"created_at"`
 	StartedAt      *int64           `json:"started_at,omitempty"`
@@ -133,6 +135,7 @@ func (a *AdminServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 	filterStatus := r.URL.Query().Get("status")
 	filterRole := r.URL.Query().Get("role")
+	filterPriority := r.URL.Query().Get("priority")
 
 	allTasks := a.scheduler.TasksSnapshot()
 	var resp TasksResponse
@@ -148,12 +151,20 @@ func (a *AdminServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 		if filterStatus != "" && string(t.Status) != filterStatus {
 			continue
 		}
+		if filterPriority != "" {
+			var p int
+			fmt.Sscanf(filterPriority, "%d", &p)
+			if t.Priority != p {
+				continue
+			}
+		}
 
 		sum := TaskSummary{
 			TaskID:         t.ID,
 			Status:         t.Status,
 			RequiredRole:   t.RequiredRole,
 			RequiredSkills: t.RequiredSkills,
+			Priority:       t.Priority,
 			AssignedClient: t.AssignedClient,
 			CreatedAt:      t.CreatedAt.UnixMilli(),
 		}

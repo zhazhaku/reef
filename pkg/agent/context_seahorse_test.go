@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
-	"github.com/sipeed/picoclaw/pkg/seahorse"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/providers"
+	"github.com/zhazhaku/reef/pkg/providers/protocoltypes"
+	"github.com/zhazhaku/reef/pkg/seahorse"
 )
 
 // seahorseTestProvider implements providers.LLMProvider for seahorse tests.
@@ -1034,7 +1034,7 @@ func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
 
 	// Add fresh messages (required for condensation candidates)
 	for i := 0; i < seahorse.FreshTailCount+1; i++ {
-		m, msgErr := store.AddMessage(ctx, conv.ConversationID, "user", "fresh", 5)
+		m, msgErr := store.AddMessage(ctx, conv.ConversationID, "user", "fresh", "", false, 5)
 		if msgErr != nil {
 			t.Fatalf("AddMessage %d: %v", i, msgErr)
 		}

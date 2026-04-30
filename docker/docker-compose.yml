@@ -1,29 +1,29 @@
 services:
   # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "Hello"
+  # Reef Agent (one-shot query)
+  #   docker compose -f docker/docker-compose.yml run --rm reef-agent -m "Hello"
   # ─────────────────────────────────────────────
-  picoclaw-agent:
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-agent
+  reef-agent:
+    image: docker.io/sipeed/reef:latest
+    container_name: reef-agent
     profiles:
       - agent
     # Uncomment to access host network; leave commented unless needed.
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
-    entrypoint: ["picoclaw", "agent"]
+      - ./data:/root/.reef
+    entrypoint: ["reef", "agent"]
     stdin_open: true
     tty: true
 
   # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
+  # Reef Gateway (Long-running Bot)
   #   docker compose -f docker/docker-compose.yml --profile gateway up
   # ─────────────────────────────────────────────
-  picoclaw-gateway:
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-gateway
+  reef-gateway:
+    image: docker.io/sipeed/reef:latest
+    container_name: reef-gateway
     restart: unless-stopped
     profiles:
       - gateway
@@ -31,25 +31,25 @@ services:
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.reef
 
   # ─────────────────────────────────────────────
-  # PicoClaw Launcher (Web Console + Gateway)
+  # Reef Launcher (Web Console + Gateway)
   #   docker compose -f docker/docker-compose.yml --profile launcher up
   # ─────────────────────────────────────────────
-  picoclaw-launcher:
-    image: docker.io/sipeed/picoclaw:launcher
-    container_name: picoclaw-launcher
+  reef-launcher:
+    image: docker.io/sipeed/reef:launcher
+    container_name: reef-launcher
     restart: unless-stopped
     profiles:
       - launcher
     environment:
-      - PICOCLAW_GATEWAY_HOST=0.0.0.0
+      - REEF_GATEWAY_HOST=0.0.0.0
       # Set a fixed dashboard token instead of a random one each restart.
       # If not set, a random token is generated and printed to the console on startup.
-      #- PICOCLAW_LAUNCHER_TOKEN=your-secret-token-here
+      #- REEF_LAUNCHER_TOKEN=your-secret-token-here
     ports:
       - "18800:18800"
       - "18790:18790"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.reef

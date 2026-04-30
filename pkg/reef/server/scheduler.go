@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/server/notify"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server/notify"
 )
 
 // Scheduler matches tasks to available Clients and handles dispatch.
@@ -18,23 +18,29 @@ type Scheduler struct {
 	logger   *slog.Logger
 
 	mu    sync.RWMutex
-	tasks map[string]*reef.Task // global task index by ID
+	tasks map[string]*reef.Task
 
-	maxEscalations int
-	webhookURLs    []string
-	notifyManager  *notify.Manager
-	onDispatch     func(task *reef.Task, clientID string) error
-	onRequeue      func(task *reef.Task)
+	maxEscalations     int
+	webhookURLs        []string
+	notifyManager      *notify.Manager
+	matchStrategy      MatchStrategy
+	onDispatch         func(task *reef.Task, clientID string) error
+	onRequeue          func(task *reef.Task)
+	onTaskStateChanged func(task *reef.Task)
+	resultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
 }
 
 // SchedulerOptions configures the scheduler.
 type SchedulerOptions struct {
-	MaxEscalations int
-	WebhookURLs    []string
-	Logger         *slog.Logger
-	NotifyManager  *notify.Manager
-	OnDispatch     func(task *reef.Task, clientID string) error
-	OnRequeue      func(task *reef.Task)
+	MaxEscalations     int
+	WebhookURLs        []string
+	Logger             *slog.Logger
+	NotifyManager      *notify.Manager
+	MatchStrategy      MatchStrategy
+	OnDispatch         func(task *reef.Task, clientID string) error
+	OnRequeue          func(task *reef.Task)
+	OnTaskStateChanged func(task *reef.Task)
+	ResultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
 }
 
 // NewScheduler creates a scheduler bound to a registry and queue.
@@ -46,49 +52,49 @@ func NewScheduler(registry *Registry, queue Queue, opts SchedulerOptions) *Sched
 		opts.Logger = slog.New(slog.NewTextHandler(nil, nil))
 	}
 	return &Scheduler{
-		registry:       registry,
-		queue:          queue,
-		logger:         opts.Logger,
-		tasks:          make(map[string]*reef.Task),
-		maxEscalations: opts.MaxEscalations,
-		webhookURLs:    opts.WebhookURLs,
-		notifyManager:  opts.NotifyManager,
-		onDispatch:     opts.OnDispatch,
-		onRequeue:      opts.OnRequeue,
+		registry:           registry,
+		queue:              queue,
+		logger:             opts.Logger,
+		tasks:              make(map[string]*reef.Task),
+		maxEscalations:     opts.MaxEscalations,
+		webhookURLs:        opts.WebhookURLs,
+		notifyManager:      opts.NotifyManager,
+		matchStrategy:      opts.MatchStrategy,
+		onDispatch:         opts.OnDispatch,
+		onRequeue:          opts.OnRequeue,
+		onTaskStateChanged: opts.OnTaskStateChanged,
+		resultCallback:     opts.ResultCallback,
 	}
 }
 
 // Submit creates a new task and attempts to schedule it immediately.
-// If no matching client is available, the task is queued.
 func (s *Scheduler) Submit(task *reef.Task) error {
 	s.mu.Lock()
 	s.tasks[task.ID] = task
 	s.mu.Unlock()
 
-	if err := task.Transition(reef.TaskQueued); err != nil {
-		return fmt.Errorf("transition to queued: %w", err)
+	if task.Status != reef.TaskQueued {
+		if err := task.Transition(reef.TaskQueued); err != nil {
+			return fmt.Errorf("transition to queued: %w", err)
+		}
 	}
 
 	if err := s.queue.Enqueue(task); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}
 
-	// Try immediate dispatch
 	s.TryDispatch()
 	return nil
 }
 
 // TryDispatch attempts to match and dispatch the next task from the queue.
-// It processes tasks in FIFO order until the queue is empty or no match is found.
 func (s *Scheduler) TryDispatch() {
 	for {
-		task := s.queue.Dequeue()
+		task := s.queue.Peek()
 		if task == nil {
 			return
 		}
 
-		// Exclude the most recently failed client to avoid reassigning
-		// a task back to the same node that just failed it.
 		excludeID := ""
 		for i := len(task.AttemptHistory) - 1; i >= 0; i-- {
 			if task.AttemptHistory[i].Status == "failed" && task.AttemptHistory[i].ClientID != "" {
@@ -99,28 +105,22 @@ func (s *Scheduler) TryDispatch() {
 
 		client := s.matchClient(task, excludeID)
 		if client == nil {
-			// No match available — put it back at the head and stop.
-			_ = s.queue.Enqueue(task) // should never fail since we just dequeued
-			if s.onRequeue != nil {
-				s.onRequeue(task)
-			}
 			return
 		}
 
-		// Attempt dispatch
+		_ = s.queue.Dequeue()
+
 		if err := s.dispatch(task, client); err != nil {
-			// Dispatch failed — put back and try next
 			_ = s.queue.Enqueue(task)
 			return
 		}
 	}
 }
 
-// matchClient finds the best-fit client for a task, optionally excluding a client ID.
-// Algorithm: role match → skill coverage → capacity → lowest current load.
+// matchClient finds the best-fit client for a task.
 func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientInfo {
 	candidates := s.registry.List()
-	var best *reef.ClientInfo
+	eligible := make([]*reef.ClientInfo, 0, len(candidates))
 	for _, c := range candidates {
 		if c.ID == excludeID {
 			continue
@@ -131,11 +131,18 @@ func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientI
 		if !c.Matches(task.RequiredRole, task.RequiredSkills) {
 			continue
 		}
-		if best == nil || c.CurrentLoad < best.CurrentLoad {
-			best = c
-		}
+		eligible = append(eligible, c)
 	}
-	return best
+
+	if len(eligible) == 0 {
+		return nil
+	}
+
+	strategy := s.matchStrategy
+	if strategy == nil {
+		strategy = &LeastLoadStrategy{}
+	}
+	return strategy.Select(eligible)
 }
 
 // dispatch assigns a task to a client and updates state.
@@ -152,7 +159,6 @@ func (s *Scheduler) dispatch(task *reef.Task, client *reef.ClientInfo) error {
 
 	if s.onDispatch != nil {
 		if err := s.onDispatch(task, client.ID); err != nil {
-			// Rollback
 			s.registry.DecrementLoad(client.ID)
 			task.AssignedClient = ""
 			_ = task.Transition(reef.TaskQueued)
@@ -171,6 +177,9 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 	if !ok {
 		return fmt.Errorf("task %s not found", taskID)
 	}
+	if task.Status.IsTerminal() {
+		return nil // idempotent
+	}
 	if task.Status != reef.TaskRunning {
 		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
 	}
@@ -182,7 +191,13 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 	s.registry.DecrementLoad(task.AssignedClient)
 	task.AssignedClient = ""
 
-	// Trigger re-schedule in case queued tasks can now be dispatched
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	if s.resultCallback != nil {
+		s.resultCallback(task, result, nil)
+	}
+
 	go s.TryDispatch()
 	return nil
 }
@@ -196,12 +211,15 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		s.mu.Unlock()
 		return fmt.Errorf("task %s not found", taskID)
 	}
+	if task.Status.IsTerminal() {
+		s.mu.Unlock()
+		return nil // idempotent
+	}
 	if task.Status != reef.TaskRunning {
 		s.mu.Unlock()
 		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
 	}
 
-	// Record the failed attempt with the client ID.
 	failedClient := task.AssignedClient
 	if len(attemptHistory) == 0 {
 		attemptHistory = []reef.AttemptRecord{{
@@ -223,7 +241,6 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 	task.AttemptHistory = append(task.AttemptHistory, attemptHistory...)
 	s.registry.DecrementLoad(failedClient)
 
-	// Transition to Failed first, then apply escalation decision.
 	_ = task.Transition(reef.TaskFailed)
 
 	decision := s.escalate(task)
@@ -235,7 +252,6 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		_ = task.Transition(reef.TaskQueued)
 		needsRequeue = true
 	case EscalationTerminate:
-		// Already in Failed state — no further transition.
 	case EscalationToAdmin:
 		_ = task.Transition(reef.TaskEscalated)
 		alert := notify.Alert{
@@ -253,7 +269,6 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		if s.notifyManager != nil {
 			go s.notifyManager.NotifyAll(context.Background(), alert)
 		} else {
-			// Fallback to legacy webhook
 			go sendWebhookAlert(s.logger, s.webhookURLs, WebhookPayload{
 				Event:           alert.Event,
 				TaskID:          alert.TaskID,
@@ -274,12 +289,20 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		_ = s.queue.Enqueue(task)
 		go s.TryDispatch()
 	}
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	if s.resultCallback != nil {
+		s.resultCallback(task, nil, taskErr)
+	}
+
 	return nil
 }
 
 // HandleClientAvailable triggers re-scheduling when a client becomes available.
 func (s *Scheduler) HandleClientAvailable(clientID string) {
-	_ = clientID // may be used for logging or metrics
+	_ = clientID
 	go s.TryDispatch()
 }
 
@@ -288,6 +311,13 @@ func (s *Scheduler) GetTask(taskID string) *reef.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.tasks[taskID]
+}
+
+// RegisterTask adds a task to the scheduler's index without enqueuing it.
+func (s *Scheduler) RegisterTask(task *reef.Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tasks[task.ID] = task
 }
 
 // TasksSnapshot returns a shallow copy of all known tasks.
@@ -301,28 +331,21 @@ func (s *Scheduler) TasksSnapshot() []*reef.Task {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Escalation
-// ---------------------------------------------------------------------------
-
 // EscalationDecision enumerates possible escalation outcomes.
 type EscalationDecision string
 
 const (
-	EscalationReassign EscalationDecision = "reassign"
+	EscalationReassign  EscalationDecision = "reassign"
 	EscalationTerminate EscalationDecision = "terminate"
 	EscalationToAdmin   EscalationDecision = "to_admin"
 )
 
-// escalate decides what to do with a failed task.
 func (s *Scheduler) escalate(task *reef.Task) EscalationDecision {
 	if task.EscalationCount >= s.maxEscalations {
 		return EscalationToAdmin
 	}
-	// Check if another client is available (exclude the one that just failed)
 	if s.matchClient(task, task.AssignedClient) != nil {
 		return EscalationReassign
 	}
-	// No other client available — terminate
 	return EscalationTerminate
 }

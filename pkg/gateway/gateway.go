@@ -14,43 +14,43 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/audio/asr"
-	"github.com/sipeed/picoclaw/pkg/audio/tts"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/channels/swarm"
-	_ "github.com/sipeed/picoclaw/pkg/channels/dingtalk"
-	_ "github.com/sipeed/picoclaw/pkg/channels/discord"
-	_ "github.com/sipeed/picoclaw/pkg/channels/feishu"
-	_ "github.com/sipeed/picoclaw/pkg/channels/irc"
-	_ "github.com/sipeed/picoclaw/pkg/channels/line"
-	_ "github.com/sipeed/picoclaw/pkg/channels/maixcam"
-	_ "github.com/sipeed/picoclaw/pkg/channels/onebot"
-	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
-	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
-	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
-	_ "github.com/sipeed/picoclaw/pkg/channels/swarm"
-	_ "github.com/sipeed/picoclaw/pkg/channels/teams_webhook"
-	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
-	_ "github.com/sipeed/picoclaw/pkg/channels/vk"
-	_ "github.com/sipeed/picoclaw/pkg/channels/wecom"
-	_ "github.com/sipeed/picoclaw/pkg/channels/weixin"
-	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
-	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/devices"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/heartbeat"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/netbind"
-	"github.com/sipeed/picoclaw/pkg/pid"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	reefserver "github.com/sipeed/picoclaw/pkg/reef/server"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/zhazhaku/reef/pkg/agent"
+	"github.com/zhazhaku/reef/pkg/audio/asr"
+	"github.com/zhazhaku/reef/pkg/audio/tts"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/channels"
+	"github.com/zhazhaku/reef/pkg/channels/swarm"
+	_ "github.com/zhazhaku/reef/pkg/channels/dingtalk"
+	_ "github.com/zhazhaku/reef/pkg/channels/discord"
+	_ "github.com/zhazhaku/reef/pkg/channels/feishu"
+	_ "github.com/zhazhaku/reef/pkg/channels/irc"
+	_ "github.com/zhazhaku/reef/pkg/channels/line"
+	_ "github.com/zhazhaku/reef/pkg/channels/maixcam"
+	_ "github.com/zhazhaku/reef/pkg/channels/onebot"
+	_ "github.com/zhazhaku/reef/pkg/channels/pico"
+	_ "github.com/zhazhaku/reef/pkg/channels/qq"
+	_ "github.com/zhazhaku/reef/pkg/channels/slack"
+	_ "github.com/zhazhaku/reef/pkg/channels/swarm"
+	_ "github.com/zhazhaku/reef/pkg/channels/teams_webhook"
+	_ "github.com/zhazhaku/reef/pkg/channels/telegram"
+	_ "github.com/zhazhaku/reef/pkg/channels/vk"
+	_ "github.com/zhazhaku/reef/pkg/channels/wecom"
+	_ "github.com/zhazhaku/reef/pkg/channels/weixin"
+	_ "github.com/zhazhaku/reef/pkg/channels/whatsapp"
+	_ "github.com/zhazhaku/reef/pkg/channels/whatsapp_native"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/cron"
+	"github.com/zhazhaku/reef/pkg/devices"
+	"github.com/zhazhaku/reef/pkg/health"
+	"github.com/zhazhaku/reef/pkg/heartbeat"
+	"github.com/zhazhaku/reef/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/media"
+	"github.com/zhazhaku/reef/pkg/netbind"
+	"github.com/zhazhaku/reef/pkg/pid"
+	"github.com/zhazhaku/reef/pkg/providers"
+	reefserver "github.com/zhazhaku/reef/pkg/reef/server"
+	"github.com/zhazhaku/reef/pkg/state"
+	"github.com/zhazhaku/reef/pkg/tools"
 )
 
 const (
@@ -866,17 +866,21 @@ func runReefServerMode(cfg *config.Config) error {
 	}
 
 	srvCfg := reefserver.Config{
-		WebSocketAddr:    settings.WSAddr,
-		AdminAddr:        adminAddr,
-		Token:            settings.Token,
-		HeartbeatTimeout: 30 * time.Second,
-		HeartbeatScan:    5 * time.Second,
-		QueueMaxLen:      maxQueue,
-		QueueMaxAge:      10 * time.Minute,
-		MaxEscalations:   maxEscalations,
-		WebhookURLs:      settings.WebhookURLs,
-		StoreType:        settings.StoreType,
-		StorePath:        settings.StorePath,
+		WebSocketAddr:         settings.WSAddr,
+		AdminAddr:             adminAddr,
+		Token:                 settings.Token,
+		HeartbeatTimeout:      30 * time.Second,
+		HeartbeatScan:         5 * time.Second,
+		QueueMaxLen:           maxQueue,
+		QueueMaxAge:           10 * time.Minute,
+		MaxEscalations:        maxEscalations,
+		WebhookURLs:           settings.WebhookURLs,
+		StoreType:             settings.StoreType,
+		StorePath:             settings.StorePath,
+		Strategy:              settings.Strategy,
+		DefaultTimeoutMs:      settings.DefaultTimeoutMs,
+		TimeoutScanIntervalSec: settings.TimeoutScanSec,
+		StarvationThresholdMs: settings.StarvationBoostMs,
 	}
 
 	// Configure TLS if enabled
@@ -971,9 +975,13 @@ func startReefServerBackground(cfg *config.Config) *reefserver.Server {
 		QueueMaxLen:      maxQueue,
 		QueueMaxAge:      10 * time.Minute,
 		MaxEscalations:   maxEscalations,
-		WebhookURLs:      settings.WebhookURLs,
-		StoreType:        settings.StoreType,
-		StorePath:        settings.StorePath,
+		WebhookURLs:           settings.WebhookURLs,
+		StoreType:             settings.StoreType,
+		StorePath:             settings.StorePath,
+		Strategy:              settings.Strategy,
+		DefaultTimeoutMs:      settings.DefaultTimeoutMs,
+		TimeoutScanIntervalSec: settings.TimeoutScanSec,
+		StarvationThresholdMs: settings.StarvationBoostMs,
 	}
 
 	if settings.TLSEnabled {

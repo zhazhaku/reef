@@ -110,19 +110,19 @@ func TestSearchMessagesFindsPartBasedMessages(t *testing.T) {
 	convID := conv.ConversationID
 
 	// Add a plain message (searchable)
-	s.AddMessage(ctx, convID, "user", "list the files please", 5)
+	s.AddMessage(ctx, convID, "user", "list the files please", "", false, 5)
 
 	// Add a Part-based message (tool_use) — currently NOT searchable
 	parts := []MessagePart{
 		{Type: "tool_use", Name: "bash", Arguments: `{"command":"grep -r TODO ."}`, ToolCallID: "call_1"},
 	}
-	s.AddMessageWithParts(ctx, convID, "assistant", parts, 10)
+	s.AddMessageWithParts(ctx, convID, "assistant", parts, "", false, 10)
 
 	// Add a Part-based message (tool_result) — currently NOT searchable
 	resultParts := []MessagePart{
 		{Type: "tool_result", Text: "main.go:42: TODO fix this bug", ToolCallID: "call_1"},
 	}
-	s.AddMessageWithParts(ctx, convID, "tool", resultParts, 10)
+	s.AddMessageWithParts(ctx, convID, "tool", resultParts, "", false, 10)
 
 	// Search for "grep" — should find the tool_use message
 	results, err := s.SearchMessages(ctx, SearchInput{Pattern: "grep"})

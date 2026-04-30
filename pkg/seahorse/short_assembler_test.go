@@ -45,8 +45,8 @@ func TestAssemblerAssembleMessagesOnly(t *testing.T) {
 	ctx := context.Background()
 
 	// Create messages
-	msg1, _ := s.AddMessage(ctx, convID, "user", "hello", 5)
-	msg2, _ := s.AddMessage(ctx, convID, "assistant", "world", 5)
+	msg1, _ := s.AddMessage(ctx, convID, "user", "hello", "", false, 5)
+	msg2, _ := s.AddMessage(ctx, convID, "assistant", "world", "", false, 5)
 
 	// Create context items
 	s.UpsertContextItems(ctx, convID, []ContextItem{
@@ -89,8 +89,8 @@ func TestAssemblerAssembleWithSummary(t *testing.T) {
 	})
 
 	// Create recent messages
-	msg1, _ := s.AddMessage(ctx, convID, "user", "recent", 5)
-	msg2, _ := s.AddMessage(ctx, convID, "assistant", "reply", 5)
+	msg1, _ := s.AddMessage(ctx, convID, "user", "recent", "", false, 5)
+	msg2, _ := s.AddMessage(ctx, convID, "assistant", "reply", "", false, 5)
 
 	// Context: summary + recent messages
 	s.UpsertContextItems(ctx, convID, []ContextItem{
@@ -128,7 +128,7 @@ func TestAssemblerBudgetEvictsOldest(t *testing.T) {
 	// Create 40 messages, each with 10 tokens = 400 total
 	msgs := make([]*Message, 40)
 	for i := 0; i < 40; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "msg", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "msg", "", false, 10)
 		msgs[i] = m
 	}
 
@@ -170,7 +170,7 @@ func TestAssemblerBudgetFitsAll(t *testing.T) {
 
 	msgs := make([]*Message, 5)
 	for i := 0; i < 5; i++ {
-		m, _ := s.AddMessage(ctx, convID, "user", "msg", 10)
+		m, _ := s.AddMessage(ctx, convID, "user", "msg", "", false, 10)
 		msgs[i] = m
 	}
 
@@ -209,7 +209,7 @@ func TestAssemblerSummaryXMLFormat(t *testing.T) {
 		TokenCount:     20,
 	})
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "hello", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "hello", "", false, 5)
 
 	s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: summary.SummaryID, TokenCount: 20},
@@ -301,7 +301,7 @@ func TestAssemblerSummaryXMLWithParents(t *testing.T) {
 		ParentIDs:      []string{leaf.SummaryID},
 	})
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 
 	s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: condensed.SummaryID, TokenCount: 15},
@@ -349,7 +349,7 @@ func TestAssemblerSummaryXMLIncludesDescendantCount(t *testing.T) {
 		DescendantTokenCount: 1200,
 	})
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 
 	s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: leaf.SummaryID, TokenCount: 20},
@@ -386,7 +386,7 @@ func TestAssemblerLeafSummaryNoParents(t *testing.T) {
 		TokenCount:     20,
 	})
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 
 	s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: leaf.SummaryID, TokenCount: 20},
@@ -436,7 +436,7 @@ func TestAssemblerDepthAwarePrompt(t *testing.T) {
 		DescendantTokenCount: 20,
 	})
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", "", false, 5)
 
 	s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: condensed.SummaryID, TokenCount: 15},

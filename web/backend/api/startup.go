@@ -15,7 +15,7 @@ import (
 
 const (
 	autoStartEntryName = "PicoClawLauncher"
-	launchAgentLabel   = "io.picoclaw.launcher"
+	launchAgentLabel   = "io.reef.launcher"
 )
 
 type autoStartRequest struct {

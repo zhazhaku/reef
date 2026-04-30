@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/sipeed/picoclaw/web/backend/launcherconfig"
+	"github.com/zhazhaku/reef/web/backend/launcherconfig"
 )
 
 type launcherConfigPayload struct {

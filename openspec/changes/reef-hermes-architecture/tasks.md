@@ -1,9 +1,17 @@
 ---
 change: reef-hermes-architecture
 artifact: tasks
-phase: research
+phase: complete
 created: 2026-04-28
+completed: 2026-04-28
 ---
+
+> **状态：✅ 全部完成** — 4 个 Phase 的研究、设计和实施均已通过 Git commits 提交：
+> `b2a489c4` (Hermes 核心), `7da42aa8` (server CLI), `48e46184` (协调工具), `974a1ea0` (E2E 测试)
+> 
+> 实施产出包括：`pkg/agent/hermes.go`, `hermes_guard.go`, `hermes_prompt.go`,
+> `cmd/picoclaw/internal/server/command.go`, `pkg/tools/reef_tools.go`,
+> `pkg/reef/bridge.go`, `pkg/reef/server/bridge.go` 等。
 
 # Tasks: Hermes 能力架构研究计划
 

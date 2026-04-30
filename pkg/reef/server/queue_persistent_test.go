@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/server/store"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server/store"
 )
 
 func newPQTestTask(id string, status reef.TaskStatus) *reef.Task {

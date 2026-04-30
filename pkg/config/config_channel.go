@@ -9,7 +9,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/logger"
 )
 
 // Channel type constants — single source of truth for all channel type names.
@@ -520,6 +520,10 @@ type SwarmSettings struct {
 	WebhookURLs       []string `json:"webhook_urls,omitempty"`        // Server mode: escalation alert webhooks (legacy)
 	StoreType         string   `json:"store_type,omitempty"`          // Server mode: "memory" (default) or "sqlite"
 	StorePath         string   `json:"store_path,omitempty"`          // Server mode: SQLite database file path
+	Strategy          string   `json:"strategy,omitempty"`            // Server mode: "least_load" (default) | "round_robin" | "affinity"
+	DefaultTimeoutMs  int64    `json:"default_timeout_ms,omitempty"`  // Server mode: default task timeout in ms (0 = 5min)
+	TimeoutScanSec    int      `json:"timeout_scan_sec,omitempty"`    // Server mode: timeout scanner interval in sec (0 = 10s)
+	StarvationBoostMs int64    `json:"starvation_boost_ms,omitempty"` // Server mode: starvation boost threshold in ms (0 = disabled)
 	TLSEnabled        bool     `json:"tls_enabled,omitempty"`         // Enable TLS for server/client
 	TLSCertFile       string   `json:"tls_cert_file,omitempty"`       // TLS certificate file
 	TLSKeyFile        string   `json:"tls_key_file,omitempty"`        // TLS key file

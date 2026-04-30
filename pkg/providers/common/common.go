@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/zhazhaku/reef/pkg/providers/protocoltypes"
 )
 
 // Re-export protocol types used across providers.
@@ -249,7 +249,23 @@ func ParseDataAudioURL(mediaURL string) (format, data string, ok bool) {
 // --- Response parsing ---
 
 // ParseResponse parses a JSON chat completion response body into an LLMResponse.
+// Uses a two-pass JSON decode: first detects whether reasoning_content is actually
+// present in the API response, then decodes the full struct. This avoids
+// unconditionally setting ReasoningContentPresent=true for providers that
+// never return reasoning_content (e.g. non-DeepSeek providers). DeepSeek
+// requires reasoning_content to be echoed back, so only set the flag when
+// the key truly exists in the upstream response.
 func ParseResponse(body io.Reader) (*LLMResponse, error) {
+	rawBody, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// First pass: check if reasoning_content key exists in choices[0].message.
+	// json.RawMessage is nil when the key is absent, non-nil when present
+	// (including explicit null or empty string).
+	reasoningContentPresent := hasReasoningContentKey(rawBody)
+
 	var apiResponse struct {
 		Choices []struct {
 			Message struct {
@@ -278,7 +294,7 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		Usage *UsageInfo `json:"usage"`
 	}
 
-	if err := json.NewDecoder(body).Decode(&apiResponse); err != nil {
+	if err := json.Unmarshal(rawBody, &apiResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -338,13 +354,33 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 	return &LLMResponse{
 		Content:                 choice.Message.Content,
 		ReasoningContent:        choice.Message.ReasoningContent,
-		ReasoningContentPresent: true,
+		ReasoningContentPresent: reasoningContentPresent,
 		Reasoning:               choice.Message.Reasoning,
 		ReasoningDetails:        choice.Message.ReasoningDetails,
 		ToolCalls:               toolCalls,
 		FinishReason:            normalizeFinishReason(choice.FinishReason),
 		Usage:                   apiResponse.Usage,
 	}, nil
+}
+
+// hasReasoningContentKey performs a lightweight JSON decode to detect whether
+// the "reasoning_content" key exists in choices[0].message of the API response.
+// json.RawMessage is nil when the key is absent, non-nil when present.
+func hasReasoningContentKey(raw json.RawMessage) bool {
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				ReasoningContent json.RawMessage `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return false
+	}
+	if len(resp.Choices) == 0 {
+		return false
+	}
+	return resp.Choices[0].Message.ReasoningContent != nil
 }
 
 // normalizeFinishReason normalizes finish_reason values across providers.

@@ -368,8 +368,8 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
       ""
     ).toLowerCase()
     const base = language.startsWith("zh")
-      ? "https://docs.picoclaw.io/zh-Hans/docs/channels"
-      : "https://docs.picoclaw.io/docs/channels"
+      ? "https://docs.reef.io/zh-Hans/docs/channels"
+      : "https://docs.reef.io/docs/channels"
     return `${base}/${getChannelDocSlug(channel.name)}`
   }, [channel, i18n.language, i18n.resolvedLanguage])
 

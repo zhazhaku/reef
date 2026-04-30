@@ -22,8 +22,8 @@ import (
 	"github.com/minio/selfupdate"
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/zhazhaku/reef/pkg/config"
+	"github.com/zhazhaku/reef/pkg/utils"
 )
 
 // httpClient is a shared HTTP client used for release checks and downloads.

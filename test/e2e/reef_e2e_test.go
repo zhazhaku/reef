@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/server"
-	"github.com/sipeed/picoclaw/pkg/reef/server/notify"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server"
+	"github.com/zhazhaku/reef/pkg/reef/server/notify"
 )
 
 // ---------------------------------------------------------------------------

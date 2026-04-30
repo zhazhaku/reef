@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ReefRouteImport } from './routes/reef'
 import { Route as ModelsRouteImport } from './routes/models'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LauncherSetupRouteImport } from './routes/launcher-setup'
@@ -18,12 +19,20 @@ import { Route as ConfigRouteImport } from './routes/config'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as ChannelsRouteRouteImport } from './routes/channels/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ReefTasksRouteImport } from './routes/reef/tasks'
+import { Route as ReefOverviewRouteImport } from './routes/reef/overview'
+import { Route as ReefClientsRouteImport } from './routes/reef/clients'
 import { Route as ConfigRawRouteImport } from './routes/config.raw'
 import { Route as ChannelsNameRouteImport } from './routes/channels/$name'
 import { Route as AgentToolsRouteImport } from './routes/agent/tools'
 import { Route as AgentSkillsRouteImport } from './routes/agent/skills'
 import { Route as AgentHubRouteImport } from './routes/agent/hub'
 
+const ReefRoute = ReefRouteImport.update({
+  id: '/reef',
+  path: '/reef',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ModelsRoute = ModelsRouteImport.update({
   id: '/models',
   path: '/models',
@@ -69,6 +78,21 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReefTasksRoute = ReefTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => ReefRoute,
+} as any)
+const ReefOverviewRoute = ReefOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => ReefRoute,
+} as any)
+const ReefClientsRoute = ReefClientsRouteImport.update({
+  id: '/clients',
+  path: '/clients',
+  getParentRoute: () => ReefRoute,
+} as any)
 const ConfigRawRoute = ConfigRawRouteImport.update({
   id: '/raw',
   path: '/raw',
@@ -105,11 +129,15 @@ export interface FileRoutesByFullPath {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/reef': typeof ReefRouteWithChildren
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/reef/clients': typeof ReefClientsRoute
+  '/reef/overview': typeof ReefOverviewRoute
+  '/reef/tasks': typeof ReefTasksRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -121,11 +149,15 @@ export interface FileRoutesByTo {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/reef': typeof ReefRouteWithChildren
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/reef/clients': typeof ReefClientsRoute
+  '/reef/overview': typeof ReefOverviewRoute
+  '/reef/tasks': typeof ReefTasksRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -138,11 +170,15 @@ export interface FileRoutesById {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/reef': typeof ReefRouteWithChildren
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/reef/clients': typeof ReefClientsRoute
+  '/reef/overview': typeof ReefOverviewRoute
+  '/reef/tasks': typeof ReefTasksRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -156,11 +192,15 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/reef'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/reef/clients'
+    | '/reef/overview'
+    | '/reef/tasks'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -172,11 +212,15 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/reef'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/reef/clients'
+    | '/reef/overview'
+    | '/reef/tasks'
   id:
     | '__root__'
     | '/'
@@ -188,11 +232,15 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/reef'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/reef/clients'
+    | '/reef/overview'
+    | '/reef/tasks'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -205,10 +253,18 @@ export interface RootRouteChildren {
   LauncherSetupRoute: typeof LauncherSetupRoute
   LogsRoute: typeof LogsRoute
   ModelsRoute: typeof ModelsRoute
+  ReefRoute: typeof ReefRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/reef': {
+      id: '/reef'
+      path: '/reef'
+      fullPath: '/reef'
+      preLoaderRoute: typeof ReefRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/models': {
       id: '/models'
       path: '/models'
@@ -271,6 +327,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/reef/tasks': {
+      id: '/reef/tasks'
+      path: '/tasks'
+      fullPath: '/reef/tasks'
+      preLoaderRoute: typeof ReefTasksRouteImport
+      parentRoute: typeof ReefRoute
+    }
+    '/reef/overview': {
+      id: '/reef/overview'
+      path: '/overview'
+      fullPath: '/reef/overview'
+      preLoaderRoute: typeof ReefOverviewRouteImport
+      parentRoute: typeof ReefRoute
+    }
+    '/reef/clients': {
+      id: '/reef/clients'
+      path: '/clients'
+      fullPath: '/reef/clients'
+      preLoaderRoute: typeof ReefClientsRouteImport
+      parentRoute: typeof ReefRoute
     }
     '/config/raw': {
       id: '/config/raw'
@@ -347,6 +424,20 @@ const ConfigRouteChildren: ConfigRouteChildren = {
 const ConfigRouteWithChildren =
   ConfigRoute._addFileChildren(ConfigRouteChildren)
 
+interface ReefRouteChildren {
+  ReefClientsRoute: typeof ReefClientsRoute
+  ReefOverviewRoute: typeof ReefOverviewRoute
+  ReefTasksRoute: typeof ReefTasksRoute
+}
+
+const ReefRouteChildren: ReefRouteChildren = {
+  ReefClientsRoute: ReefClientsRoute,
+  ReefOverviewRoute: ReefOverviewRoute,
+  ReefTasksRoute: ReefTasksRoute,
+}
+
+const ReefRouteWithChildren = ReefRoute._addFileChildren(ReefRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChannelsRouteRoute: ChannelsRouteRouteWithChildren,
@@ -357,6 +448,7 @@ const rootRouteChildren: RootRouteChildren = {
   LauncherSetupRoute: LauncherSetupRoute,
   LogsRoute: LogsRoute,
   ModelsRoute: ModelsRoute,
+  ReefRoute: ReefRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

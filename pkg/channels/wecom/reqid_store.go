@@ -36,7 +36,7 @@ func newReqIDStore(path string) *reqIDStore {
 
 func defaultReqIDStorePath() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".picoclaw", "wecom", "reqid-store.json")
+		return filepath.Join(home, ".reef", "wecom", "reqid-store.json")
 	}
 	return filepath.Join(os.TempDir(), "picoclaw-wecom-reqid-store.json")
 }

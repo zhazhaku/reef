@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/server/store"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server/store"
 )
 
 // PersistentQueue is a queue backed by a TaskStore with an in-memory cache.

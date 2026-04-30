@@ -3,9 +3,11 @@ import {
   IconAtom,
   IconChevronsDown,
   IconChevronsUp,
+  IconDashboard,
   IconKey,
   IconListDetails,
   IconMessageCircle,
+  IconNetwork,
   IconSearch,
   IconSettings,
   IconSparkles,
@@ -63,6 +65,10 @@ const baseNavGroups: Omit<NavGroup, "items">[] = [
   },
   {
     label: "navigation.services",
+    defaultOpen: true,
+  },
+  {
+    label: "navigation.reef",
     defaultOpen: true,
   },
 ]
@@ -165,6 +171,29 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.logs",
             url: "/logs",
             icon: IconListDetails,
+            translateTitle: true,
+          },
+        ],
+      },
+      {
+        ...baseNavGroups[4],
+        items: [
+          {
+            title: "navigation.reef_overview",
+            url: "/reef/overview",
+            icon: IconDashboard,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.reef_tasks",
+            url: "/reef/tasks",
+            icon: IconListDetails,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.reef_clients",
+            url: "/reef/clients",
+            icon: IconNetwork,
             translateTitle: true,
           },
         ],

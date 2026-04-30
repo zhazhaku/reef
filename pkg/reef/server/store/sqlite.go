@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 	_ "modernc.org/sqlite"
 )
 
@@ -91,6 +91,12 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_role ON tasks(required_role);`,
 		`CREATE INDEX IF NOT EXISTS idx_task_attempts_task_id ON task_attempts(task_id);`,
+		`CREATE TABLE IF NOT EXISTS task_relations (
+			parent_id TEXT NOT NULL,
+			child_id TEXT NOT NULL,
+			dependency TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (parent_id, child_id)
+		);`,
 	}
 
 	for _, m := range migrations {
@@ -392,6 +398,50 @@ func (s *SQLiteStore) getAttemptsLocked(taskID string) ([]reef.AttemptRecord, er
 	}
 
 	return attempts, nil
+}
+
+// SaveRelation records a parent-child relationship for DAG tasks.
+func (s *SQLiteStore) SaveRelation(parentID, childID, dependency string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO task_relations (parent_id, child_id, dependency) VALUES (?, ?, ?)`,
+		parentID, childID, dependency,
+	)
+	return err
+}
+
+// GetSubTaskIDs returns all child task IDs for a parent.
+func (s *SQLiteStore) GetSubTaskIDs(parentID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows, err := s.db.Query(`SELECT child_id FROM task_relations WHERE parent_id = ?`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetParentTaskID returns the parent task ID for a child.
+func (s *SQLiteStore) GetParentTaskID(childID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	row := s.db.QueryRow(`SELECT parent_id FROM task_relations WHERE child_id = ? LIMIT 1`, childID)
+	var parentID string
+	err := row.Scan(&parentID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return parentID, err
 }
 
 // Close closes the underlying database connection.

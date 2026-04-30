@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef/server"
+	"github.com/zhazhaku/reef/pkg/reef/server"
 )
 
 // PerfServer wraps a Reef server for performance testing.

@@ -35,8 +35,8 @@ func TestGrepSearchMessages(t *testing.T) {
 	ctx := context.Background()
 	conv, _ := s.GetOrCreateConversation(ctx, "test:grep-msg")
 
-	s.AddMessage(ctx, conv.ConversationID, "user", "find this message about testing", 5)
-	s.AddMessage(ctx, conv.ConversationID, "user", "unrelated content", 3)
+	s.AddMessage(ctx, conv.ConversationID, "user", "find this message about testing", "", false, 5)
+	s.AddMessage(ctx, conv.ConversationID, "user", "unrelated content", "", false, 3)
 
 	re := &RetrievalEngine{store: s}
 	results, err := re.Grep(ctx, GrepInput{

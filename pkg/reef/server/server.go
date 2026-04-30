@@ -10,27 +10,31 @@ import (
 	"os"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/reef"
-	"github.com/sipeed/picoclaw/pkg/reef/server/notify"
-	"github.com/sipeed/picoclaw/pkg/reef/server/store"
-	"github.com/sipeed/picoclaw/pkg/reef/server/ui"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server/notify"
+	"github.com/zhazhaku/reef/pkg/reef/server/store"
+	"github.com/zhazhaku/reef/pkg/reef/server/ui"
 )
 
 // Config holds all server configuration.
 type Config struct {
-	WebSocketAddr    string
-	AdminAddr        string
-	Token            string
-	HeartbeatTimeout time.Duration
-	HeartbeatScan    time.Duration
-	QueueMaxLen      int
-	QueueMaxAge      time.Duration
-	MaxEscalations   int
-	WebhookURLs      []string
-	StoreType        string // "memory" (default) or "sqlite"
-	StorePath        string // SQLite database file path
-	TLS              *TLSConfig
-	Notifications    []NotificationConfig
+	WebSocketAddr         string
+	AdminAddr             string
+	Token                 string
+	HeartbeatTimeout      time.Duration
+	HeartbeatScan         time.Duration
+	QueueMaxLen           int
+	QueueMaxAge           time.Duration
+	MaxEscalations        int
+	WebhookURLs           []string
+	StoreType             string // "memory" (default) or "sqlite"
+	StorePath             string // SQLite database file path
+	TLS                   *TLSConfig
+	Notifications         []NotificationConfig
+	Strategy              string        // "least_load" | "round_robin" | "affinity"
+	DefaultTimeoutMs      int64         // default task timeout in ms (0 = 5min)
+	TimeoutScanIntervalSec int          // timeout scanner interval in seconds (0 = 10s)
+	StarvationThresholdMs  int64        // starvation boost threshold in ms (0 = disabled)
 }
 
 // NotificationConfig configures a notification channel.
@@ -63,19 +67,20 @@ func DefaultConfig() Config {
 
 // Server is the top-level Reef Server orchestrator.
 type Server struct {
-	config    Config
-	registry  *Registry
-	queue     Queue
-	scheduler *Scheduler
-	wsServer  *WebSocketServer
-	admin     *AdminServer
-	ui        *ui.Handler
-	logger    *slog.Logger
+	config         Config
+	registry       *Registry
+	queue          Queue
+	scheduler      *Scheduler
+	wsServer       *WebSocketServer
+	admin          *AdminServer
+	ui             *ui.Handler
+	logger         *slog.Logger
 
-	httpServer   *http.Server
-	wsHTTPServer *http.Server
-	cancelCtx    context.CancelFunc
-	bridge       *ServerBridge
+	httpServer     *http.Server
+	wsHTTPServer   *http.Server
+	cancelCtx      context.CancelFunc
+	bridge         *ServerBridge
+	timeoutScanner *TimeoutScanner
 }
 
 // Bridge returns the ReefBridge for in-process access to the scheduler.
@@ -97,20 +102,21 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		logger.Warn("client marked stale", slog.String("client_id", clientID))
 	})
 
-	// Task queue — use persistent store if configured
+	// Task queue — use priority queue with optional persistence
 	var taskQueue Queue
 	if cfg.StoreType == "sqlite" && cfg.StorePath != "" {
 		sqliteStore, err := store.NewSQLiteStore(cfg.StorePath)
 		if err != nil {
 			logger.Error("failed to open SQLite store, falling back to memory",
 				slog.String("error", err.Error()))
-			taskQueue = NewTaskQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
+			taskQueue = NewPriorityQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
 		} else {
 			logger.Info("using SQLite persistent store", slog.String("path", cfg.StorePath))
-			taskQueue = NewPersistentQueue(sqliteStore, cfg.QueueMaxLen, cfg.QueueMaxAge, logger)
+			// Use persistent wrapper around priority queue
+			taskQueue = NewPersistentPriorityQueue(sqliteStore, cfg.QueueMaxLen, cfg.QueueMaxAge, logger)
 		}
 	} else {
-		taskQueue = NewTaskQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
+		taskQueue = NewPriorityQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
 	}
 	s.queue = taskQueue
 
@@ -140,14 +146,25 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		notifyMgr.Add(notify.NewWebhookNotifier(cfg.WebhookURLs))
 	}
 
+	// Match strategy
+	var strategy MatchStrategy
+	switch cfg.Strategy {
+	case "round_robin":
+		strategy = &RoundRobinStrategy{}
+	case "affinity":
+		// Created below after scheduler is available
+	default:
+		// "least_load" or empty → nil (default = LeastLoad)
+	}
+
 	// Scheduler
 	s.scheduler = NewScheduler(s.registry, s.queue, SchedulerOptions{
 		MaxEscalations: cfg.MaxEscalations,
 		WebhookURLs:    cfg.WebhookURLs,
 		Logger:         logger,
 		NotifyManager:  notifyMgr,
+		MatchStrategy:  strategy,
 		OnDispatch: func(task *reef.Task, clientID string) error {
-			// Actually send the task_dispatch message via WebSocket
 			if s.wsServer == nil {
 				return fmt.Errorf("websocket server not ready")
 			}
@@ -156,7 +173,43 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		OnRequeue: func(task *reef.Task) {
 			logger.Info("task requeued", slog.String("task_id", task.ID))
 		},
+		OnTaskStateChanged: func(task *reef.Task) {
+			// Persist state changes to the SQLite store.
+			if sa, ok := s.queue.(storeAccess); ok {
+				if err := sa.Store().UpdateTask(task); err != nil {
+					logger.Warn("failed to persist task state change",
+						slog.String("task_id", task.ID),
+						slog.String("error", err.Error()))
+				}
+			}
+		},
 	})
+
+	// Register restored tasks from persistent queue into the scheduler's index.
+	// PersistentQueue.restore() loads non-terminal tasks into the queue cache,
+	// but the scheduler's internal task map needs to be synced for GetTask() etc.
+	//
+	// IMPORTANT: Register the SAME pointers from the queue's snapshot first.
+	// The queue cache and the store may return different task objects; only the
+	// queue's copies are modified during dispatch/completion.
+	for _, task := range s.queue.Snapshot() {
+		s.scheduler.RegisterTask(task)
+	}
+
+	// Also register terminal tasks (completed/failed/etc.) from the store
+	// so they're queryable via GetTask() and admin endpoints.
+	if sa, ok := s.queue.(storeAccess); ok {
+		terminalTasks, err := sa.Store().ListTasks(store.TaskFilter{
+			Statuses: []reef.TaskStatus{
+				reef.TaskCompleted, reef.TaskFailed, reef.TaskCancelled, reef.TaskEscalated,
+			},
+		})
+		if err == nil {
+			for _, task := range terminalTasks {
+				s.scheduler.RegisterTask(task)
+			}
+		}
+	}
 
 	// WebSocket server
 	s.wsServer = NewWebSocketServer(s.registry, s.scheduler, cfg.Token, logger)
@@ -169,6 +222,30 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 
 	// Bridge for in-process coordination tools
 	s.bridge = NewServerBridge(s.scheduler, s.registry)
+
+	// Post-init: affinity strategy needs the scheduler for task history
+	if cfg.Strategy == "affinity" {
+		s.scheduler.matchStrategy = NewAffinityStrategy(s.scheduler.TasksSnapshot)
+	}
+
+	// Timeout scanner
+	timeoutInterval := time.Duration(cfg.TimeoutScanIntervalSec) * time.Second
+	if timeoutInterval <= 0 {
+		timeoutInterval = 10 * time.Second
+	}
+	s.timeoutScanner = NewTimeoutScanner(
+		timeoutInterval,
+		logger,
+		s.scheduler.TasksSnapshot,
+		func(task *reef.Task) {
+			s.scheduler.HandleClientAvailable("") // trigger re-dispatch
+		},
+		nil, // store is handled separately via OnTaskStateChanged
+	)
+	// Wire up store if available
+	if sa, ok := s.queue.(storeAccess); ok {
+		s.timeoutScanner.store = sa.Store()
+	}
 
 	return s
 }
@@ -250,6 +327,11 @@ func (s *Server) Start() error {
 	// Heartbeat scanner
 	go s.heartbeatScanner(ctx)
 
+	// Timeout scanner
+	if s.timeoutScanner != nil {
+		go s.timeoutScanner.Run(ctx)
+	}
+
 	return nil
 }
 
@@ -257,6 +339,11 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	if s.cancelCtx != nil {
 		s.cancelCtx()
+	}
+
+	// Stop timeout scanner
+	if s.timeoutScanner != nil {
+		s.timeoutScanner.Stop()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

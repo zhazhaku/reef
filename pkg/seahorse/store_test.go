@@ -91,11 +91,11 @@ func TestStoreClearConversation(t *testing.T) {
 	}
 
 	// Add messages
-	msg1, err := s.AddMessage(ctx, conv.ConversationID, "user", "hello", 5)
+	msg1, err := s.AddMessage(ctx, conv.ConversationID, "user", "hello", "", false, 5)
 	if err != nil {
 		t.Fatalf("add message 1: %v", err)
 	}
-	msg2, err := s.AddMessage(ctx, conv.ConversationID, "assistant", "hi", 5)
+	msg2, err := s.AddMessage(ctx, conv.ConversationID, "assistant", "hi", "", false, 5)
 	if err != nil {
 		t.Fatalf("add message 2: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestStoreAddAndGetMessages(t *testing.T) {
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
 
-	msg, err := s.AddMessage(ctx, conv.ConversationID, "user", "hello world", 5)
+	msg, err := s.AddMessage(ctx, conv.ConversationID, "user", "hello world", "", false, 5)
 	if err != nil {
 		t.Fatalf("AddMessage: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestStoreAddMessageWithParts(t *testing.T) {
 		{Type: "tool_use", Name: "read_file", Arguments: `{"path":"/tmp/test"}`, ToolCallID: "tc_123"},
 		{Type: "text", Text: "some output"},
 	}
-	msg, err := s.AddMessageWithParts(ctx, conv.ConversationID, "assistant", parts, 10)
+	msg, err := s.AddMessageWithParts(ctx, conv.ConversationID, "assistant", parts, "", false, 10)
 	if err != nil {
 		t.Fatalf("AddMessageWithParts: %v", err)
 	}
@@ -239,9 +239,9 @@ func TestStoreGetMessageCount(t *testing.T) {
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
 
-	s.AddMessage(ctx, conv.ConversationID, "user", "msg1", 2)
-	s.AddMessage(ctx, conv.ConversationID, "assistant", "msg2", 3)
-	s.AddMessage(ctx, conv.ConversationID, "user", "msg3", 1)
+	s.AddMessage(ctx, conv.ConversationID, "user", "msg1", "", false, 2)
+	s.AddMessage(ctx, conv.ConversationID, "assistant", "msg2", "", false, 3)
+	s.AddMessage(ctx, conv.ConversationID, "user", "msg3", "", false, 1)
 
 	count, err := s.GetMessageCount(ctx, conv.ConversationID)
 	if err != nil {
@@ -258,7 +258,7 @@ func TestStoreGetMessageByID(t *testing.T) {
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
 
-	msg, _ := s.AddMessage(ctx, conv.ConversationID, "user", "find me", 3)
+	msg, _ := s.AddMessage(ctx, conv.ConversationID, "user", "find me", "", false, 3)
 
 	found, err := s.GetMessageByID(ctx, msg.ID)
 	if err != nil {
@@ -400,8 +400,8 @@ func TestStoreSummarySourceMessages(t *testing.T) {
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
 
-	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "msg1", 2)
-	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "msg2", 3)
+	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "msg1", "", false, 2)
+	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "msg2", "", false, 3)
 
 	summary, _ := s.CreateSummary(ctx, CreateSummaryInput{
 		ConversationID: conv.ConversationID,
@@ -469,8 +469,8 @@ func TestStoreContextItems(t *testing.T) {
 	ctx := context.Background()
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
-	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", 2)
-	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "world", 2)
+	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", "", false, 2)
+	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "world", "", false, 2)
 
 	// Upsert items
 	items := []ContextItem{
@@ -504,8 +504,8 @@ func TestStoreAppendContextMessages(t *testing.T) {
 	ctx := context.Background()
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
-	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", 2)
-	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "world", 2)
+	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", "", false, 2)
+	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "world", "", false, 2)
 
 	s.UpsertContextItems(ctx, conv.ConversationID, []ContextItem{
 		{Ordinal: 100, ItemType: "message", MessageID: msg1.ID, TokenCount: 2},
@@ -535,7 +535,7 @@ func TestStoreReplaceContextRangeWithSummary(t *testing.T) {
 	// Create messages and context items
 	msgs := make([]int64, 4)
 	for i := 0; i < 4; i++ {
-		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", "msg", 2)
+		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", "msg", "", false, 2)
 		msgs[i] = m.ID
 	}
 
@@ -599,7 +599,7 @@ func TestStoreReplaceContextRangeResequenceOrdinals(t *testing.T) {
 	// Create 5 messages with DENSE ordinals (no gaps) to trigger conflict
 	msgs := make([]int64, 5)
 	for i := 0; i < 5; i++ {
-		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), 2)
+		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), "", false, 2)
 		msgs[i] = m.ID
 	}
 
@@ -714,7 +714,7 @@ func TestResequenceContextItemsTxAssignsUniqueOrdinals(t *testing.T) {
 	// Create messages
 	msgs := make([]int64, 5)
 	for i := 0; i < 5; i++ {
-		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), 2)
+		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), "", false, 2)
 		msgs[i] = m.ID
 	}
 
@@ -805,7 +805,7 @@ func TestStoreGetContextTokenCount(t *testing.T) {
 	ctx := context.Background()
 
 	conv, _ := s.GetOrCreateConversation(ctx, "agent:test")
-	msg, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", 0)
+	msg, _ := s.AddMessage(ctx, conv.ConversationID, "user", "hello", "", false, 0)
 
 	s.UpsertContextItems(ctx, conv.ConversationID, []ContextItem{
 		{Ordinal: 100, ItemType: "message", MessageID: msg.ID, TokenCount: 42},
@@ -836,8 +836,8 @@ func TestStoreGetMaxOrdinal(t *testing.T) {
 	}
 
 	// Add items
-	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "a", 1)
-	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "user", "b", 1)
+	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "a", "", false, 1)
+	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "user", "b", "", false, 1)
 	s.UpsertContextItems(ctx, conv.ConversationID, []ContextItem{
 		{Ordinal: 100, ItemType: "message", MessageID: msg1.ID, TokenCount: 1},
 		{Ordinal: 250, ItemType: "message", MessageID: msg2.ID, TokenCount: 1},
@@ -1072,9 +1072,9 @@ func TestSearchMessagesUsesFTS5(t *testing.T) {
 	convID := conv.ConversationID
 
 	// Add messages with searchable content
-	s.AddMessage(ctx, convID, "user", "The quick brown fox jumps over the lazy dog", 10)
-	s.AddMessage(ctx, convID, "assistant", "A response about something else entirely", 10)
-	s.AddMessage(ctx, convID, "user", "Five boxing wizards jump quickly at dawn", 10)
+	s.AddMessage(ctx, convID, "user", "The quick brown fox jumps over the lazy dog", "", false, 10)
+	s.AddMessage(ctx, convID, "assistant", "A response about something else entirely", "", false, 10)
+	s.AddMessage(ctx, convID, "user", "Five boxing wizards jump quickly at dawn", "", false, 10)
 
 	input := SearchInput{
 		Pattern:        "fox jumps",
@@ -1109,7 +1109,7 @@ func TestMessagesFTSTriggers(t *testing.T) {
 	convID := conv.ConversationID
 
 	// Insert a message
-	_, err := s.AddMessage(ctx, convID, "user", "database migration completed successfully", 10)
+	_, err := s.AddMessage(ctx, convID, "user", "database migration completed successfully", "", false, 10)
 	if err != nil {
 		t.Fatalf("AddMessage: %v", err)
 	}
@@ -1147,7 +1147,7 @@ func TestSearchMessagesWithTimeFilter(t *testing.T) {
 	convID := conv.ConversationID
 
 	// Add messages
-	s.AddMessage(ctx, convID, "user", "important deployment notes", 10)
+	s.AddMessage(ctx, convID, "user", "important deployment notes", "", false, 10)
 
 	// Search with Since filter (1 hour ago → should match)
 	since := time.Now().UTC().Add(-1 * time.Hour)
@@ -1239,7 +1239,7 @@ func TestStoreReplaceContextItemsWithSummary(t *testing.T) {
 	// Create messages
 	msgs := make([]int64, 5)
 	for i := 0; i < 5; i++ {
-		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), 2)
+		m, _ := s.AddMessage(ctx, conv.ConversationID, "user", fmt.Sprintf("msg%d", i), "", false, 2)
 		msgs[i] = m.ID
 	}
 

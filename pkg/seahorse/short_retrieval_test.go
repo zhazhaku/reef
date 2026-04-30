@@ -63,8 +63,8 @@ func TestRetrievalGrepMessages(t *testing.T) {
 	r, s, convID := newTestRetrieval(t)
 	ctx := context.Background()
 
-	s.AddMessage(ctx, convID, "user", "find this message about testing", 5)
-	s.AddMessage(ctx, convID, "user", "unrelated content here", 5)
+	s.AddMessage(ctx, convID, "user", "find this message about testing", "", false, 5)
+	s.AddMessage(ctx, convID, "user", "unrelated content here", "", false, 5)
 
 	results, err := r.Grep(ctx, GrepInput{
 		Pattern: "testing",
@@ -81,7 +81,7 @@ func TestRetrievalExpandMessages(t *testing.T) {
 	r, s, convID := newTestRetrieval(t)
 	ctx := context.Background()
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "expand this message", 10)
+	msg, _ := s.AddMessage(ctx, convID, "user", "expand this message", "", false, 10)
 
 	result, err := r.ExpandMessages(ctx, []int64{msg.ID})
 	if err != nil {
@@ -99,9 +99,9 @@ func TestRetrievalExpandMultipleMessages(t *testing.T) {
 	r, s, convID := newTestRetrieval(t)
 	ctx := context.Background()
 
-	msg1, _ := s.AddMessage(ctx, convID, "user", "first message", 10)
-	msg2, _ := s.AddMessage(ctx, convID, "assistant", "second message", 10)
-	msg3, _ := s.AddMessage(ctx, convID, "user", "third message", 10)
+	msg1, _ := s.AddMessage(ctx, convID, "user", "first message", "", false, 10)
+	msg2, _ := s.AddMessage(ctx, convID, "assistant", "second message", "", false, 10)
+	msg3, _ := s.AddMessage(ctx, convID, "user", "third message", "", false, 10)
 
 	result, err := r.ExpandMessages(ctx, []int64{msg1.ID, msg2.ID, msg3.ID})
 	if err != nil {
@@ -123,8 +123,8 @@ func TestRetrievalGrepWithTimeFilter(t *testing.T) {
 	before := now.Add(-2 * time.Hour)
 
 	// Create messages at different times
-	s.AddMessage(ctx, convID, "user", "old message about auth", 5)
-	s.AddMessage(ctx, convID, "user", "recent message about auth", 5)
+	s.AddMessage(ctx, convID, "user", "old message about auth", "", false, 5)
+	s.AddMessage(ctx, convID, "user", "recent message about auth", "", false, 5)
 
 	// Search with time filter
 	results, err := r.Grep(ctx, GrepInput{
@@ -145,7 +145,7 @@ func TestRetrievalGrepAllConversations(t *testing.T) {
 	conv2, _ := s.GetOrCreateConversation(ctx, "test:retrieval2")
 
 	// Add messages to both
-	s.AddMessage(ctx, conv2.ConversationID, "user", "unique keyword xyz", 5)
+	s.AddMessage(ctx, conv2.ConversationID, "user", "unique keyword xyz", "", false, 5)
 
 	// Search all conversations
 	results, err := r.Grep(ctx, GrepInput{
@@ -204,9 +204,9 @@ func TestRetrievalGrepRoleFilter(t *testing.T) {
 	r, s, convID := newTestRetrieval(t)
 	ctx := context.Background()
 
-	s.AddMessage(ctx, convID, "user", "user message about alpha", 5)
-	s.AddMessage(ctx, convID, "assistant", "assistant reply about alpha", 5)
-	s.AddMessage(ctx, convID, "user", "another user message", 5)
+	s.AddMessage(ctx, convID, "user", "user message about alpha", "", false, 5)
+	s.AddMessage(ctx, convID, "assistant", "assistant reply about alpha", "", false, 5)
+	s.AddMessage(ctx, convID, "user", "another user message", "", false, 5)
 
 	// Search all roles
 	allResults, err := r.Grep(ctx, GrepInput{
@@ -255,7 +255,7 @@ func TestRetrievalGrepWithLast(t *testing.T) {
 
 	// Add messages (we can't control timestamps in SQLite easily,
 	// but we can verify the parameter is parsed correctly)
-	s.AddMessage(ctx, convID, "user", "recent message about testing", 5)
+	s.AddMessage(ctx, convID, "user", "recent message about testing", "", false, 5)
 
 	// Test that Last parameter is converted to Since
 	results, err := r.Grep(ctx, GrepInput{
@@ -287,8 +287,8 @@ func TestRetrievalGrepRoleFilterWithSummaries(t *testing.T) {
 	})
 
 	// Add messages with different roles
-	s.AddMessage(ctx, convID, "user", "user message about testing", 5)
-	s.AddMessage(ctx, convID, "assistant", "assistant reply about testing", 5)
+	s.AddMessage(ctx, convID, "user", "user message about testing", "", false, 5)
+	s.AddMessage(ctx, convID, "assistant", "assistant reply about testing", "", false, 5)
 
 	// Search with role filter and scope=both (default), using LIKE mode (%)
 	// This should NOT error even though summaries don't have role column
@@ -331,7 +331,7 @@ func TestRetrievalGrepTotalCounts(t *testing.T) {
 
 	// Add 5 messages
 	for i := 0; i < 5; i++ {
-		s.AddMessage(ctx, convID, "user", fmt.Sprintf("message about testing %d", i), 5)
+		s.AddMessage(ctx, convID, "user", fmt.Sprintf("message about testing %d", i), "", false, 5)
 	}
 
 	// Search with limit smaller than total

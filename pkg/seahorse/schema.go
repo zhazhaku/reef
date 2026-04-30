@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/logger"
 )
 
 // SQL statements for FTS5 tables with trigram tokenizer.
@@ -42,12 +42,14 @@ func runSchema(db *sql.DB) error {
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS messages (
-			message_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-			conversation_id INTEGER NOT NULL REFERENCES conversations(conversation_id),
-			role            TEXT NOT NULL,
-			content         TEXT NOT NULL DEFAULT '',
-			token_count     INTEGER NOT NULL DEFAULT 0,
-			created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+			message_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id           INTEGER NOT NULL REFERENCES conversations(conversation_id),
+			role                      TEXT NOT NULL,
+			content                   TEXT NOT NULL DEFAULT '',
+			reasoning_content         TEXT NOT NULL DEFAULT '',
+			reasoning_content_present INTEGER NOT NULL DEFAULT 0,
+			token_count               INTEGER NOT NULL DEFAULT 0,
+			created_at                TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS message_parts (
