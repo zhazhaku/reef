@@ -4,99 +4,93 @@
 
 All 5 tasks implemented, all tests passing, zero regressions.
 
+...
+
+---
+
+# P6-06 Client Evolver (GEP) — Summary
+
+## Status: ✅ COMPLETE
+
+All 6 tasks implemented, all 30 evolver tests passing. Full GEP cycle implemented.
+
 ## What Was Done
 
-### Task 1: ExecutionObserver (observer.go)
-- Created `pkg/reef/evolution/client/observer.go`
-- Defined `EvolutionObserver` interface with `ObserveTaskCompleted` / `ObserveTaskFailed`
-- Implemented `DefaultObserver` with:
-  - `ObserverConfig`: `MaxOpsOnFailure` (default 5), `EnableRootCause` (default true)
-  - Success signal extraction: keywords "fixed"/"resolved"/"completed"/"implemented"/"tested", ≤500 chars
-  - Failure signal extraction: error type + message + tool call summary, ≤500 chars
-  - Blocking detection: "escalated" type or "unrecoverable" message → EventBlockingPattern
-  - LLM root cause analysis: optional, 5s timeout, graceful fallback to Importance=0.5
-  - Edge cases: nil signal/result/taskErr all return errors; LLM unavailable still returns event
-- 16 tests: success path, failure path, blocking error, unrecoverable message, nil guards, LLM fallback, LLM success, default config, nil logger
+### Task 1: LocalGeneEvolver struct and EvolverConfig (evolver.go)
+- Defined `LLMProvider` interface for evolution-dedicated LLM calls
+- Defined `geneEvolverStore` interface locally (consumer-side pattern, like recorder)
+- Defined `GeneGateChecker` and `GeneSubmittor` interfaces for gatekeeper/submitter
+- Created `LocalGeneEvolver` struct with store, llm, gate, submitter, strategy, config, rng, mutex, logger
+- Created `EvolverConfig` with defaults: MaxEventsPerCycle=10, MaxGeneLines=200, StagnationThreshold=3, LLMTimeout=30s, MaxControlSignalChars=5000
+- Constructor `NewLocalGeneEvolver` applies defaults for zero-valued config fields
+- Edge cases: nil store → error, nil LLM → error
 
-### Task 2: EvolutionRecorder (recorder.go)
-- Created `pkg/reef/evolution/client/recorder.go`
-- Defined `evolutionEventStore` interface locally (consumer-side interface pattern)
-- Implemented `EvolutionRecorder` with:
-  - SQLite persistence via `InsertEvolutionEvent`
-  - Configurable `RecorderConfig`: `BatchTriggerCount` (default 5), `TimeTriggerMinutes` (default 30)
-  - Concurrent-safe: trigger has own mutex
-  - Edge cases: nil event → error, empty ID → error, DB insert error → error (no trigger check)
+### Task 2: Evolve() — main GEP cycle
+- Full 9-step GEP cycle: query → group → select → find → generate/mutate → stagnate → gate → save → submit
+- Mutex-protected for concurrent safety
+- `queryRecentEvents` fetches from store
+- `splitByType` separates success/failure/blocking; skips stagnation events
+- `findSimilarGene` looks up top gene by strategy-derived role
+- `markEventsProcessed` flags source events with gene ID
+- `parseGeneJSON` strips code fences from LLM output
+- `truncateControlSignal` enforces line and char limits
+- Edge cases: no events → nil; gate rejects → saved as rejected; gate nil → skip check
 
-### Task 3: RecorderTrigger — 3 trigger mechanisms
-- `RecorderTrigger` with 3 trigger mechanisms:
-  1. **Immediate new-failure**: fires when first failure event for a task is recorded
-  2. **Batch count**: fires when pending events >= `batchThreshold`
-  3. **Time interval**: fires when elapsed >= `timeThreshold` AND pending > 0
-- Multiple triggers can fire on same `afterRecord()` call
-- `fire()` calls `onTrigger` callback, updates `lastTriggerTime`
-- Nil `onTrigger` → no-op with log warning (no panic)
-- 13 recorder tests: single event, batch trigger (3→5), nil event, empty ID, insert error, batch fires on 5th, immediate failure, time interval (simulated 31min), time not expired, no pending + expired time = no trigger, multiple triggers on same call, nil callback no panic, reset
+### Task 3: selectTarget with strategy weights
+- Uses `Strategy.Weights()` for probability-based target selection
+- Decision tree: repair (r < Repair) → failures; innovate (r < Innovate+Repair) → novel successes; optimize (else) → existing patterns; fallback → failures
+- `filterNovelPatterns`: events with empty GeneID
+- `filterExistingPatterns`: events with non-empty GeneID
+- Deterministic testing via `SetRNG()` using seeded rand
+- Verified all 4 strategy weight distributions (Balanced, Innovate, Harden, RepairOnly)
 
-### Task 4: TaskRunner integration
-- Modified `pkg/reef/client/task_runner.go`:
-  - Added `evolutionObserver` and `evolutionRecorder` local interfaces
-  - Added `observer` and `recorder` fields to `TaskRunner` (optional, nil-safe)
-  - Added `ToolCalls []evolution.ToolCallRecord` to `RunningTask`
-  - Added `SetEvolutionObserver()` / `SetEvolutionRecorder()` setters
-  - Added `RecordToolCall()` method for tool call tracking
-  - Hooked `recordEvolutionSuccess()` / `recordEvolutionFailure()` into `runWithRetry`
-  - Evolution helpers: build `EvolutionSignal`, call observer, call recorder
-  - All evolution errors are logged but NEVER fail the task (best-effort)
-- 5 new integration tests: success path, failure path, no observer set (no panic), observer error still completes, tool call recording
+### Task 4: generateGene and mutateGene with LLM
+- `generateGene`: builds prompt → LLM call → parse JSON → set metadata (ID=uuid, Version=1, timestamps, source events)
+- `mutateGene`: builds mutation prompt → LLM call → parse JSON → preserve ID, increment Version, append source events
+- `hasImproved`: success-only events → true; failure events → >10% ControlSignal change = improvement
+- `stripCodeFences`: handles LLM ```json...``` wrapping
+- Edge cases: LLM invalid JSON → error; empty StrategyName → error; timeout → error; code-fenced JSON → parsed
 
-### Task 5: Signal quality tests
-- Added to `observer_test.go`:
-  - `TestObserverSignalLength`: success and failure signals ≤ 500 chars
-  - `TestObserverSignalNotEmpty`: both success and failure signals non-empty
-  - `TestObserverImportanceRange`: importance in [0.0, 1.0]
-  - `TestObserverBlockingDetection`: escalated → blocking, unrecoverable → blocking, regular → failure
-  - `TestObserverSignal_EmptyToolCallSummary`: valid events even with empty tool calls
+### Task 5: evolver_prompt.go with prompt templates
+- `BuildGeneGenerationPrompt`: System prompt referencing Evolver paper (arXiv:2604.15097), instructs LLM to produce compact Gene JSON
+- `BuildGeneMutationPrompt`: Refines existing Gene with new evidence, truncates ControlSignal to 3000 chars to avoid token overflow
+- `BuildRootCausePrompt`: Compact root cause analysis prompt for Observer (≤500 chars target)
+- All prompts are English, ≤8000 chars
+
+### Task 6: Stagnation detection with cycle tracking
+- 3 consecutive no-improvement cycles → `GeneStatusStagnant`
+- Stagnant genes saved for audit trail but NOT submitted
+- `notifyStagnation`: creates `EvolutionEvent` with `EventStagnation`, best-effort insert
+- Unstagnation path: improvement resets StagnationCount to 0, status back to Draft
+- Stagnation event notification is best-effort (errors logged, not returned)
 
 ## Test Results
 
 ```
-=== Observer tests: 16/16 PASS
-=== Recorder tests: 13/13 PASS (29 total in evolution/client)
-=== TaskRunner tests: 11/11 PASS (6 existing + 5 new, zero regressions)
-=== Store tests: 25/25 PASS (no changes needed)
+=== All evolver tests: 30/30 PASS
+=== Full evolution/client suite: 59/59 PASS (29 observer/recorder + 30 evolver)
 ```
 
 ## Files Changed
 
 | File | Action |
 |------|--------|
-| `pkg/reef/evolution/client/observer.go` | NEW — ExecutionObserver implementation |
-| `pkg/reef/evolution/client/observer_test.go` | NEW — 16 observer tests |
-| `pkg/reef/evolution/client/recorder.go` | NEW — EvolutionRecorder + RecorderTrigger |
-| `pkg/reef/evolution/client/recorder_test.go` | NEW — 13 recorder tests |
-| `pkg/reef/client/task_runner.go` | MODIFIED — observer/recorder hooks, tool call tracking |
-| `pkg/reef/client/task_runner_test.go` | MODIFIED — 5 new integration tests |
-
-## Commits
-
-```
-81069fab feat(06-05): implement ExecutionObserver with signal extraction and LLM root cause analysis
-3c973e4a feat(06-05): implement EvolutionRecorder with SQLite persistence and 3 trigger mechanisms
-4782bccf feat(06-05): hook Observer + Recorder into TaskRunner with non-breaking integration
-```
+| `pkg/reef/evolution/client/evolver.go` | NEW — LocalGeneEvolver, EvolverConfig, full GEP cycle |
+| `pkg/reef/evolution/client/evolver_prompt.go` | NEW — Gene generation/mutation/root-cause prompt templates |
+| `pkg/reef/evolution/client/evolver_test.go` | NEW — 30 evolver tests |
 
 ## Design Decisions
 
-1. **Local interface pattern**: `evolutionEventStore` defined in recorder.go (consumer side), not in store package. Decouples evolution/client from store package. Concrete `SQLiteStore` implements it implicitly.
+1. **Consumer-side interface pattern**: `geneEvolverStore` defined locally (same pattern as recorder's `evolutionEventStore`). No coupling to concrete store types.
 
-2. **evolutionObserver/evolutionRecorder interfaces in client package**: TaskRunner defines its own minimal interfaces, avoiding direct import of evolution/client. Callers wire concrete types.
+2. **Gate/Submitter interfaces**: Defined as `GeneGateChecker` and `GeneSubmittor` in evolver.go. Concrete implementations (gate.go, submitter.go) will satisfy these implicitly.
 
-3. **Best-effort evolution**: Observer and recorder errors never fail the task. Evolution signal collection is strictly non-blocking.
+3. **Strategy weight distribution**: Follows the design doc exactly. Repair=0.20 means 20% of targets are failures. With empty-GeneID successes, the Optimize path falls through to fallback (failures), effectively giving Harden ~80% failure selection rate — by design for hardening.
 
-4. **Trigger mutex separation**: Recorder and Trigger use separate mutexes. Multiple concurrent `Record()` calls can both fire triggers (acceptable — evolver has its own serialization).
+4. **Stagnant early return**: When stagnation is detected, the gene is saved immediately and Evolve() returns. The gene is NOT submitted. This prevents stagnant genes from cluttering the server's gene pool.
 
-5. **LLM root cause analysis is truly optional**: `SetRootCauseAnalyzer()` must be called explicitly. If not set, no analysis attempt is made.
+5. **Deterministic RNG**: `SetRNG()` allows injection of seeded `rand.Rand` for reproducible tests of the strategy weight selection.
 
-6. **Signal truncation**: `truncateToMaxChars` uses simple character count, not byte count. Acceptable for ASCII-dominant task summaries.
+6. **ControlSignal truncation**: Both line count (200) and character count (5000) limits enforced. LLM mutation prompt also truncates existing ControlSignal to 3000 chars.
 
-7. **`isFirstFailureForTask` uses DB count**: Counts `EventFailurePattern` events for client. `count == 1` means this event just inserted is the first (since Record inserts before checking).
+7. **hasImproved heuristic**: Simple >10% ControlSignal delta for failure events, always true for success-only events. Avoids over-engineering a complex LLM evaluation.
