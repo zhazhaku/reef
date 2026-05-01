@@ -184,6 +184,93 @@ type ControlAckPayload struct {
 	Timestamp   int64  `json:"timestamp"`
 }
 
+// ---- Phase 6-7: Evolution + Raft Payloads ----
+
+// GeneSubmitPayload is sent by Client to submit a gene for evolution approval.
+type GeneSubmitPayload struct {
+	GeneID         string          `json:"gene_id"`
+	GeneData       json.RawMessage `json:"gene_data"`
+	SourceEventIDs []string        `json:"source_event_ids"`
+	ClientID       string          `json:"client_id"`
+	Timestamp      int64           `json:"timestamp"`
+}
+
+// GeneApprovedPayload is sent by Server to approve a submitted gene.
+type GeneApprovedPayload struct {
+	GeneID     string `json:"gene_id"`
+	ApprovedBy string `json:"approved_by"`
+	ServerTime int64  `json:"server_time"`
+}
+
+// GeneRejectedPayload is sent by Server to reject a submitted gene.
+type GeneRejectedPayload struct {
+	GeneID     string `json:"gene_id"`
+	Reason     string `json:"reason"`
+	Layer      int    `json:"layer"` // which gatekeeper layer rejected: 1/2/3
+	ServerTime int64  `json:"server_time"`
+}
+
+// GeneBroadcastPayload is sent by Server to broadcast an approved gene to all Clients.
+type GeneBroadcastPayload struct {
+	GeneID         string          `json:"gene_id"`
+	GeneData       json.RawMessage `json:"gene_data"`
+	SourceClientID string          `json:"source_client_id"`
+	ApprovedAt     int64           `json:"approved_at"` // Unix millis
+	BroadcastBy    string          `json:"broadcast_by"`
+}
+
+// SkillDraftProposedPayload is sent when a skill draft is proposed from merged genes.
+type SkillDraftProposedPayload struct {
+	DraftID   string `json:"draft_id"`
+	Role      string `json:"role"`
+	SkillName string `json:"skill_name"`
+	GeneCount int    `json:"gene_count"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// TaskClaimPayload is sent by Client to claim a task.
+type TaskClaimPayload struct {
+	TaskID    string `json:"task_id"`
+	ClientID  string `json:"client_id"`
+	Role      string `json:"role"`
+	ClaimedAt int64  `json:"claimed_at"`
+}
+
+// TaskAvailablePayload is sent by Server to announce an available task.
+type TaskAvailablePayload struct {
+	TaskID         string   `json:"task_id"`
+	RequiredRole   string   `json:"required_role"`
+	RequiredSkills []string `json:"required_skills"`
+	Priority       int      `json:"priority"`
+	Instruction    string   `json:"instruction"` // first 200 chars summary
+	ExpiresAt      int64    `json:"expires_at"`  // Unix millis
+}
+
+// TaskClaimedPayload is sent by Server to confirm a task has been claimed.
+type TaskClaimedPayload struct {
+	TaskID    string `json:"task_id"`
+	ClaimedBy string `json:"claimed_by"`
+	ClaimedAt int64  `json:"claimed_at"`
+}
+
+// TaskBlockPayload is sent by Client to report a blocking condition.
+type TaskBlockPayload struct {
+	TaskID    string `json:"task_id"`
+	ClientID  string `json:"client_id"`
+	BlockType string `json:"block_type"` // "tool_error", "context_corruption", "resource_unavailable"
+	Message   string `json:"message"`
+	Context   string `json:"context"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// RaftLeaderChangePayload is sent when the Raft cluster leadership changes.
+type RaftLeaderChangePayload struct {
+	NewLeaderID   string `json:"new_leader_id"`
+	NewLeaderAddr string `json:"new_leader_addr"`
+	Term          uint64 `json:"term"`
+	Timestamp     int64  `json:"timestamp"`
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
