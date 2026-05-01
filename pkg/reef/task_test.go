@@ -1,7 +1,9 @@
 package reef
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -79,8 +81,8 @@ func TestNewTask(t *testing.T) {
 	if task.MaxRetries != 3 {
 		t.Errorf("MaxRetries = %d, want 3", task.MaxRetries)
 	}
-	if task.TimeoutMs != 300_000 {
-		t.Errorf("TimeoutMs = %d, want 300000", task.TimeoutMs)
+	if task.TimeoutMs != 600_000 {
+		t.Errorf("TimeoutMs = %d, want 600000", task.TimeoutMs)
 	}
 }
 
@@ -185,5 +187,268 @@ func TestTaskContext_PauseResumeChannels(t *testing.T) {
 		// ok
 	case <-time.After(time.Second):
 		t.Error("timeout waiting for ResumeCh")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BlockReport tests
+// ---------------------------------------------------------------------------
+
+func TestBlockReport_IsValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		br    BlockReport
+		valid bool
+	}{
+		{
+			name:  "valid tool_error",
+			br:    BlockReport{Type: "tool_error", Message: "tool crashed", Context: "tool_x"},
+			valid: true,
+		},
+		{
+			name:  "valid context_corruption",
+			br:    BlockReport{Type: "context_corruption", Message: "context overflow", Context: ""},
+			valid: true,
+		},
+		{
+			name:  "valid resource_unavailable",
+			br:    BlockReport{Type: "resource_unavailable", Message: "GPU OOM"},
+			valid: true,
+		},
+		{
+			name:  "valid unknown with empty Context",
+			br:    BlockReport{Type: "unknown", Message: "something went wrong"},
+			valid: true,
+		},
+		{
+			name:  "empty Type fails",
+			br:    BlockReport{Type: "", Message: "msg"},
+			valid: false,
+		},
+		{
+			name:  "empty Message fails",
+			br:    BlockReport{Type: "tool_error", Message: ""},
+			valid: false,
+		},
+		{
+			name:  "unknown Type fails",
+			br:    BlockReport{Type: "bad_type", Message: "msg"},
+			valid: false,
+		},
+		{
+			name:  "both empty fails",
+			br:    BlockReport{Type: "", Message: ""},
+			valid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.br.IsValid()
+			if got != tt.valid {
+				t.Errorf("IsValid() = %v, want %v", got, tt.valid)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TaskQuality tests
+// ---------------------------------------------------------------------------
+
+func TestTaskQuality_IsZero(t *testing.T) {
+	tests := []struct {
+		name   string
+		tq     TaskQuality
+		isZero bool
+	}{
+		{
+			name:   "zero-valued returns true",
+			tq:     TaskQuality{},
+			isZero: true,
+		},
+		{
+			name:   "non-zero Score",
+			tq:     TaskQuality{Score: 0.5},
+			isZero: false,
+		},
+		{
+			name:   "non-zero SignalsCount",
+			tq:     TaskQuality{SignalsCount: 1},
+			isZero: false,
+		},
+		{
+			name:   "Evolved=true",
+			tq:     TaskQuality{Evolved: true},
+			isZero: false,
+		},
+		{
+			name:   "Evolved=true with SignalsCount=0 (valid edge case)",
+			tq:     TaskQuality{Evolved: true, SignalsCount: 0, Score: 0},
+			isZero: false,
+		},
+		{
+			name:   "all non-zero",
+			tq:     TaskQuality{Score: 0.9, SignalsCount: 3, Evolved: true},
+			isZero: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.tq.IsZero()
+			if got != tt.isZero {
+				t.Errorf("IsZero() = %v, want %v", got, tt.isZero)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Extended Task JSON round-trip tests
+// ---------------------------------------------------------------------------
+
+func TestTaskWithEvolutionFields(t *testing.T) {
+	// Test 1: Task with BlockReport and Quality set
+	t.Run("with_evolution_fields", func(t *testing.T) {
+		task := NewTask("ev-1", "evolve test", "coder", []string{"go"})
+		task.BlockReport = &BlockReport{
+			Type:    "tool_error",
+			Message: "OOM during execution",
+			Context: "tool: code_exec",
+		}
+		task.Quality = &TaskQuality{
+			Score:        0.85,
+			SignalsCount: 4,
+			Evolved:      true,
+		}
+
+		data, err := json.Marshal(task)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// Verify keys are present
+		if !bytes.Contains(data, []byte(`"block_report"`)) {
+			t.Error("expected block_report key in JSON")
+		}
+		if !bytes.Contains(data, []byte(`"quality"`)) {
+			t.Error("expected quality key in JSON")
+		}
+
+		// Unmarshal back
+		var restored Task
+		if err := json.Unmarshal(data, &restored); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if restored.BlockReport == nil {
+			t.Fatal("BlockReport should not be nil")
+		}
+		if restored.BlockReport.Type != "tool_error" {
+			t.Errorf("BlockReport.Type = %q, want tool_error", restored.BlockReport.Type)
+		}
+		if restored.BlockReport.Message != "OOM during execution" {
+			t.Errorf("BlockReport.Message = %q", restored.BlockReport.Message)
+		}
+		if restored.BlockReport.Context != "tool: code_exec" {
+			t.Errorf("BlockReport.Context = %q", restored.BlockReport.Context)
+		}
+
+		if restored.Quality == nil {
+			t.Fatal("Quality should not be nil")
+		}
+		if restored.Quality.Score != 0.85 {
+			t.Errorf("Quality.Score = %f, want 0.85", restored.Quality.Score)
+		}
+		if restored.Quality.SignalsCount != 4 {
+			t.Errorf("Quality.SignalsCount = %d, want 4", restored.Quality.SignalsCount)
+		}
+		if !restored.Quality.Evolved {
+			t.Error("Quality.Evolved should be true")
+		}
+	})
+
+	// Test 2: Task without evolution fields — keys absent
+	t.Run("without_evolution_fields", func(t *testing.T) {
+		task := NewTask("plain-1", "plain task", "coder", nil)
+
+		data, err := json.Marshal(task)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// Verify keys are absent
+		if bytes.Contains(data, []byte(`"block_report"`)) {
+			t.Error("block_report key should be absent when nil")
+		}
+		if bytes.Contains(data, []byte(`"quality"`)) {
+			t.Error("quality key should be absent when nil")
+		}
+
+		// Unmarshal back
+		var restored Task
+		if err := json.Unmarshal(data, &restored); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if restored.BlockReport != nil {
+			t.Error("BlockReport should be nil")
+		}
+		if restored.Quality != nil {
+			t.Error("Quality should be nil")
+		}
+	})
+}
+
+func TestTaskStateMachineUnchanged(t *testing.T) {
+	// Verify all existing state transitions still work for tasks with evolution fields set
+	task := NewTask("ev-task", "test evolution fields don't break state machine", "coder", []string{"go"})
+	task.BlockReport = &BlockReport{
+		Type:    "resource_unavailable",
+		Message: "test block",
+	}
+	task.Quality = &TaskQuality{
+		Score:        0.75,
+		SignalsCount: 2,
+		Evolved:      false,
+	}
+
+	// Verify CanTransitionTo is unaffected by evolution fields
+	if !TaskCreated.CanTransitionTo(TaskQueued) {
+		t.Error("Created->Queued should be valid")
+	}
+	if !TaskCreated.CanTransitionTo(TaskFailed) {
+		t.Error("Created->Failed should be valid")
+	}
+
+	// Run a full lifecycle transition chain
+	transitions := []TaskStatus{TaskQueued, TaskAssigned, TaskRunning, TaskCompleted}
+	for _, to := range transitions {
+		if err := task.Transition(to); err != nil {
+			t.Fatalf("transition to %s: %v", to, err)
+		}
+	}
+
+	// Verify fields are preserved
+	if task.BlockReport == nil {
+		t.Error("BlockReport should be preserved after transitions")
+	}
+	if task.Quality == nil {
+		t.Error("Quality should be preserved after transitions")
+	}
+
+	// Terminal state should block further transitions
+	if err := task.Transition(TaskRunning); err == nil {
+		t.Error("expected error for invalid transition from Completed")
+	}
+
+	// Verify BlockReport.Type matches protocol BlockType strings
+	validBlockTypes := []string{"tool_error", "context_corruption", "resource_unavailable"}
+	for _, bt := range validBlockTypes {
+		br := BlockReport{Type: bt, Message: "test"}
+		if !br.IsValid() {
+			t.Errorf("BlockReport.Type=%q should be valid", bt)
+		}
 	}
 }
