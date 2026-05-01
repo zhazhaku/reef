@@ -271,6 +271,134 @@ type RaftLeaderChangePayload struct {
 	Timestamp     int64  `json:"timestamp"`
 }
 
+// ---- Validate methods for Phase 6-7 Payloads ----
+
+func (p GeneSubmitPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	if len(p.GeneData) <= 2 {
+		return fmt.Errorf("gene_data must be non-empty valid JSON")
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	return nil
+}
+
+func (p GeneApprovedPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	return nil
+}
+
+func (p GeneRejectedPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	if p.Reason == "" {
+		return fmt.Errorf("reason is required")
+	}
+	if p.Layer < 1 || p.Layer > 3 {
+		return fmt.Errorf("layer must be 1, 2, or 3")
+	}
+	return nil
+}
+
+func (p GeneBroadcastPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	if len(p.GeneData) == 0 {
+		return fmt.Errorf("gene_data must be non-empty")
+	}
+	if p.SourceClientID == "" {
+		return fmt.Errorf("source_client_id is required")
+	}
+	return nil
+}
+
+func (p SkillDraftProposedPayload) Validate() error {
+	if p.DraftID == "" {
+		return fmt.Errorf("draft_id is required")
+	}
+	if p.Role == "" {
+		return fmt.Errorf("role is required")
+	}
+	if p.SkillName == "" {
+		return fmt.Errorf("skill_name is required")
+	}
+	if p.GeneCount <= 0 {
+		return fmt.Errorf("gene_count must be greater than 0")
+	}
+	return nil
+}
+
+func (p TaskClaimPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	return nil
+}
+
+func (p TaskAvailablePayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.RequiredRole == "" {
+		return fmt.Errorf("required_role is required")
+	}
+	if p.Priority < 1 || p.Priority > 10 {
+		return fmt.Errorf("priority must be between 1 and 10")
+	}
+	if p.ExpiresAt <= 0 {
+		return fmt.Errorf("expires_at must be positive")
+	}
+	return nil
+}
+
+func (p TaskClaimedPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClaimedBy == "" {
+		return fmt.Errorf("claimed_by is required")
+	}
+	return nil
+}
+
+func (p TaskBlockPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	switch p.BlockType {
+	case "tool_error", "context_corruption", "resource_unavailable":
+		return nil
+	default:
+		return fmt.Errorf("block_type must be one of: tool_error, context_corruption, resource_unavailable")
+	}
+}
+
+func (p RaftLeaderChangePayload) Validate() error {
+	if p.NewLeaderID == "" {
+		return fmt.Errorf("new_leader_id is required")
+	}
+	if p.NewLeaderAddr == "" {
+		return fmt.Errorf("new_leader_addr is required")
+	}
+	if p.Term <= 0 {
+		return fmt.Errorf("term must be positive")
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
