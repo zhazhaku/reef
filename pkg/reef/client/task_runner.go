@@ -8,12 +8,25 @@ import (
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/evolution"
 )
 
 // ExecFunc is the user-provided function that executes a task.
 // It receives the task instruction and a context that carries TaskContext.
 // It should return the result text or an error.
 type ExecFunc func(ctx context.Context, instruction string) (string, error)
+
+// evolutionObserver is the minimal interface for observing task execution.
+// It avoids a direct import dependency on the evolution/client package.
+type evolutionObserver interface {
+	ObserveTaskCompleted(ctx context.Context, signal *evolution.EvolutionSignal) ([]*evolution.EvolutionEvent, error)
+	ObserveTaskFailed(ctx context.Context, signal *evolution.EvolutionSignal) ([]*evolution.EvolutionEvent, error)
+}
+
+// evolutionRecorder is the minimal interface for recording evolution events.
+type evolutionRecorder interface {
+	Record(event *evolution.EvolutionEvent) error
+}
 
 // TaskRunner manages the execution lifecycle of tasks on a Client node.
 type TaskRunner struct {
@@ -24,6 +37,8 @@ type TaskRunner struct {
 	maxRetries  int
 	retryDelay  time.Duration
 	logger      *slog.Logger
+	observer    evolutionObserver // optional — set via SetEvolutionObserver
+	recorder    evolutionRecorder // optional — set via SetEvolutionRecorder
 }
 
 // RunningTask represents an in-flight task on the Client.
@@ -37,6 +52,7 @@ type RunningTask struct {
 	Result      string
 	Error       error
 	Attempts    []reef.AttemptRecord
+	ToolCalls   []evolution.ToolCallRecord // tool calls recorded during execution
 	mu          sync.Mutex
 }
 
@@ -68,6 +84,32 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 		retryDelay: opts.RetryDelay,
 		logger:     opts.Logger,
 	}
+}
+
+// SetEvolutionObserver sets the optional observer for evolution signal collection.
+// When nil, evolution observation is disabled (zero overhead).
+func (r *TaskRunner) SetEvolutionObserver(o evolutionObserver) {
+	r.observer = o
+}
+
+// SetEvolutionRecorder sets the optional recorder for evolution event persistence.
+// When nil, evolution recording is disabled.
+func (r *TaskRunner) SetEvolutionRecorder(rec evolutionRecorder) {
+	r.recorder = rec
+}
+
+// RecordToolCall records a tool invocation for the running task.
+// This is a no-op if the task is not found.
+func (r *TaskRunner) RecordToolCall(taskID string, tc evolution.ToolCallRecord) {
+	r.mu.Lock()
+	rt, ok := r.tasks[taskID]
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	rt.mu.Lock()
+	rt.ToolCalls = append(rt.ToolCalls, tc)
+	rt.mu.Unlock()
 }
 
 // StartTask begins execution of a new task.
@@ -116,6 +158,10 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 			rt.Result = result
 			rt.Attempts = append(rt.Attempts, record)
 			rt.mu.Unlock()
+
+			// Evolution: observe and record success
+			r.recordEvolutionSuccess(rt, result)
+
 			r.reportCompleted(rt.TaskID, result, record.EndedAt.Sub(record.StartedAt).Milliseconds())
 			return
 		}
@@ -153,6 +199,10 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 	rt.Status = "failed"
 	rt.Error = lastErr
 	rt.mu.Unlock()
+
+	// Evolution: observe and record failure
+	r.recordEvolutionFailure(rt, lastErr)
+
 	r.reportFailed(rt.TaskID, lastErr, rt.Attempts)
 }
 
@@ -261,4 +311,86 @@ func (r *TaskRunner) reportFailed(taskID string, err error, attempts []reef.Atte
 		AttemptHistory: attempts,
 	})
 	_ = r.connector.Send(msg)
+}
+
+// ---------------------------------------------------------------------------
+// Evolution hooks (best-effort, never fail the task)
+// ---------------------------------------------------------------------------
+
+// recordEvolutionSuccess builds an EvolutionSignal for a completed task,
+// calls the observer and recorder if configured. Errors are logged but never
+// propagated — evolution signal collection is best-effort.
+func (r *TaskRunner) recordEvolutionSuccess(rt *RunningTask, result string) {
+	if r.observer == nil {
+		return
+	}
+
+	task := r.buildTaskFromRunning(rt)
+	signal := &evolution.EvolutionSignal{
+		Task:            task,
+		Result:          &reef.TaskResult{Text: result},
+		AttemptHistory:  rt.Attempts,
+		ToolCallSummary: rt.ToolCalls,
+	}
+
+	events, err := r.observer.ObserveTaskCompleted(context.Background(), signal)
+	if err != nil {
+		r.logger.Warn("observer failed on task completion", slog.String("task_id", rt.TaskID), slog.String("error", err.Error()))
+		return
+	}
+
+	r.recordEvents(events)
+}
+
+// recordEvolutionFailure builds an EvolutionSignal for a failed task,
+// calls the observer and recorder if configured. Errors are logged but never
+// propagated.
+func (r *TaskRunner) recordEvolutionFailure(rt *RunningTask, taskErr error) {
+	if r.observer == nil {
+		return
+	}
+
+	task := r.buildTaskFromRunning(rt)
+	signal := &evolution.EvolutionSignal{
+		Task:            task,
+		TaskErr:         &reef.TaskError{Type: "escalated", Message: taskErr.Error()},
+		AttemptHistory:  rt.Attempts,
+		ToolCallSummary: rt.ToolCalls,
+	}
+
+	events, err := r.observer.ObserveTaskFailed(context.Background(), signal)
+	if err != nil {
+		r.logger.Warn("observer failed on task failure", slog.String("task_id", rt.TaskID), slog.String("error", err.Error()))
+		return
+	}
+
+	r.recordEvents(events)
+}
+
+// recordEvents sends events to the recorder. Each Record call is independent;
+// errors are logged but do not fail the task.
+func (r *TaskRunner) recordEvents(events []*evolution.EvolutionEvent) {
+	if r.recorder == nil {
+		return
+	}
+	for _, event := range events {
+		if err := r.recorder.Record(event); err != nil {
+			r.logger.Warn("recorder failed to record event",
+				slog.String("event_id", event.ID),
+				slog.String("error", err.Error()))
+		}
+	}
+}
+
+// buildTaskFromRunning constructs a minimal reef.Task from a RunningTask
+// for use in EvolutionSignal. It is a shallow copy with only the fields
+// needed by the observer.
+func (r *TaskRunner) buildTaskFromRunning(rt *RunningTask) *reef.Task {
+	return &reef.Task{
+		ID:             rt.TaskID,
+		Instruction:    rt.Instruction,
+		Status:         reef.TaskStatus(rt.Status),
+		AssignedClient: "", // filled by caller if needed
+		AttemptHistory: rt.Attempts,
+	}
 }
