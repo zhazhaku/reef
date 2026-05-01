@@ -27,6 +27,20 @@ const (
 	MsgPause         MessageType = "pause"
 	MsgResume        MessageType = "resume"
 	MsgControlAck    MessageType = "control_ack"
+
+	// Phase 6: Evolution Engine messages
+	MsgGeneSubmit          MessageType = "gene_submit"
+	MsgGeneApproved        MessageType = "gene_approved"
+	MsgGeneRejected        MessageType = "gene_rejected"
+	MsgGeneBroadcast       MessageType = "gene_broadcast"
+	MsgSkillDraftProposed  MessageType = "skill_draft_proposed"
+	MsgTaskClaim           MessageType = "task_claim"
+	MsgTaskAvailable       MessageType = "task_available"
+	MsgTaskClaimed         MessageType = "task_claimed"
+	MsgTaskBlock           MessageType = "task_block"
+
+	// Phase 7: Raft messages
+	MsgRaftLeaderChange MessageType = "raft_leader_change"
 )
 
 // IsValid returns true if the message type is a known enum value.
@@ -35,6 +49,13 @@ func (mt MessageType) IsValid() bool {
 	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
 		MsgCancel, MsgPause, MsgResume, MsgControlAck:
+		return true
+	// Phase 6: Evolution Engine messages
+	case MsgGeneSubmit, MsgGeneApproved, MsgGeneRejected, MsgGeneBroadcast,
+		MsgSkillDraftProposed, MsgTaskClaim, MsgTaskAvailable, MsgTaskClaimed, MsgTaskBlock:
+		return true
+	// Phase 7: Raft messages
+	case MsgRaftLeaderChange:
 		return true
 	}
 	return false
