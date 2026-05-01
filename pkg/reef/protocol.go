@@ -27,6 +27,11 @@ const (
 	MsgPause         MessageType = "pause"
 	MsgResume        MessageType = "resume"
 	MsgControlAck    MessageType = "control_ack"
+
+	// Phase 6 — Claim Board messages
+	MsgTaskAvailable MessageType = "task_available"
+	MsgTaskClaimed   MessageType = "task_claimed"
+	MsgTaskClaim     MessageType = "task_claim"
 )
 
 // IsValid returns true if the message type is a known enum value.
@@ -34,7 +39,8 @@ func (mt MessageType) IsValid() bool {
 	switch mt {
 	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
-		MsgCancel, MsgPause, MsgResume, MsgControlAck:
+		MsgCancel, MsgPause, MsgResume, MsgControlAck,
+		MsgTaskAvailable, MsgTaskClaimed, MsgTaskClaim:
 		return true
 	}
 	return false
@@ -159,6 +165,35 @@ type ControlAckPayload struct {
 	ControlType string `json:"control_type"`
 	TaskID      string `json:"task_id"`
 	Timestamp   int64  `json:"timestamp"`
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Claim Board payloads
+// ---------------------------------------------------------------------------
+
+// TaskAvailablePayload is sent by Server to eligible clients when a task
+// is posted on the claim board.
+type TaskAvailablePayload struct {
+	TaskID         string   `json:"task_id"`
+	RequiredRole   string   `json:"required_role"`
+	RequiredSkills []string `json:"required_skills,omitempty"`
+	Priority       int      `json:"priority"`
+	Instruction    string   `json:"instruction"`    // first 200 chars
+	ExpiresAt      int64    `json:"expires_at"`     // Unix milliseconds
+}
+
+// TaskClaimedPayload is sent by Server to other candidates when a task
+// on the claim board is claimed by a client.
+type TaskClaimedPayload struct {
+	TaskID    string `json:"task_id"`
+	ClaimedBy string `json:"claimed_by"`
+	ClaimedAt int64  `json:"claimed_at"` // Unix milliseconds
+}
+
+// TaskClaimPayload is sent by Client to claim a task on the claim board.
+type TaskClaimPayload struct {
+	TaskID   string `json:"task_id"`
+	ClientID string `json:"client_id"`
 }
 
 // ---------------------------------------------------------------------------

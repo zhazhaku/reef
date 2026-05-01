@@ -87,6 +87,7 @@ type Task struct {
 	Instruction     string
 	RequiredRole    string
 	RequiredSkills  []string
+	Priority        int            // 1-10, higher = more urgent. ≤5 goes to claim board.
 	MaxRetries      int
 	TimeoutMs       int64
 	AssignedClient  string
