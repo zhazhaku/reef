@@ -29,9 +29,13 @@ type Connector struct {
 	msgInCh   chan reef.Message // messages received from server
 	closed    bool
 
-	backoff     *Backoff
+	backoff          *Backoff
 	heartbeatInterval time.Duration
-	logger      *slog.Logger
+	logger           *slog.Logger
+
+	// Phase 6 — Claim Board callbacks
+	onTaskAvailable func(reef.TaskAvailablePayload)
+	onTaskClaimed   func(reef.TaskClaimedPayload)
 }
 
 // ConnectorOptions configures a new Connector.
@@ -119,6 +123,22 @@ func (c *Connector) Close() error {
 	return nil
 }
 
+// SetOnTaskAvailable sets the callback invoked when a task_available message is received.
+// The callback is called from a goroutine to avoid blocking the message loop.
+func (c *Connector) SetOnTaskAvailable(fn func(reef.TaskAvailablePayload)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onTaskAvailable = fn
+}
+
+// SetOnTaskClaimed sets the callback invoked when a task_claimed message is received.
+// The callback is called from a goroutine to avoid blocking the message loop.
+func (c *Connector) SetOnTaskClaimed(fn func(reef.TaskClaimedPayload)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onTaskClaimed = fn
+}
+
 // ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------
@@ -196,6 +216,30 @@ func (c *Connector) readLoop(ctx context.Context) {
 		if !msg.MsgType.IsValid() {
 			c.logger.Warn("unknown message type", slog.String("msg_type", string(msg.MsgType)))
 			continue
+		}
+
+		// Phase 6 — Claim Board messages go to callbacks (non-blocking goroutines)
+		switch msg.MsgType {
+		case reef.MsgTaskAvailable:
+			var payload reef.TaskAvailablePayload
+			if err := msg.DecodePayload(&payload); err == nil {
+				c.mu.Lock()
+				cb := c.onTaskAvailable
+				c.mu.Unlock()
+				if cb != nil {
+					go cb(payload)
+				}
+			}
+		case reef.MsgTaskClaimed:
+			var payload reef.TaskClaimedPayload
+			if err := msg.DecodePayload(&payload); err == nil {
+				c.mu.Lock()
+				cb := c.onTaskClaimed
+				c.mu.Unlock()
+				if cb != nil {
+					go cb(payload)
+				}
+			}
 		}
 
 		select {
