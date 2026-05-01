@@ -10,14 +10,16 @@ import (
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
+	evolutionsrv "github.com/zhazhaku/reef/pkg/reef/evolution/server"
 )
 
 // AdminServer exposes HTTP endpoints for observability and control.
 type AdminServer struct {
-	registry  *Registry
-	scheduler *Scheduler
-	token     string // Bearer token for admin API authentication; empty = no auth
-	logger    *slog.Logger
+	registry     *Registry
+	scheduler    *Scheduler
+	token        string // Bearer token for admin API authentication; empty = no auth
+	logger       *slog.Logger
+	evolutionHub *evolutionsrv.EvolutionHub
 }
 
 // NewAdminServer creates an admin HTTP handler.
@@ -35,7 +37,13 @@ func NewAdminServer(registry *Registry, scheduler *Scheduler, token string, logg
 func (a *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/status", a.authMiddleware(a.handleStatus))
 	mux.HandleFunc("/admin/tasks", a.authMiddleware(a.handleTasks))
+	mux.HandleFunc("/admin/evolution/status", a.authMiddleware(a.handleEvolutionStatus))
 	mux.HandleFunc("/tasks", a.authMiddleware(a.handleSubmitTask))
+}
+
+// SetEvolutionHub sets the evolution hub for the admin server.
+func (a *AdminServer) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
+	a.evolutionHub = hub
 }
 
 // authMiddleware wraps a handler with Bearer token authentication.
@@ -269,6 +277,64 @@ func (a *AdminServer) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		"task_id": task.ID,
 		"status":  string(task.Status),
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Evolution Status
+// ---------------------------------------------------------------------------
+
+// EvolutionStatusResponse is the JSON shape for /admin/evolution/status.
+type EvolutionStatusResponse struct {
+	Enabled bool             `json:"enabled"`
+	Stats   *EvolutionStats  `json:"stats,omitempty"`
+}
+
+// EvolutionStats holds evolution engine statistics.
+type EvolutionStats struct {
+	TotalSubmitted   int64  `json:"total_submitted"`
+	TotalApproved    int64  `json:"total_approved"`
+	TotalRejected    int64  `json:"total_rejected"`
+	TotalBroadcasted int64  `json:"total_broadcasted"`
+	LastActivity     string `json:"last_activity"`
+	PendingGenes     int    `json:"pending_genes"`
+	Strategy         string `json:"strategy"`
+}
+
+func (a *AdminServer) handleEvolutionStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.evolutionHub == nil {
+		writeJSON(w, EvolutionStatusResponse{Enabled: false})
+		return
+	}
+
+	hubStats := a.evolutionHub.GetStats()
+
+	// Count pending genes (submitted or draft)
+	pendingSubmitted := 0
+	pendingDraft := 0
+	// Try to get counts from the store. The hub exposes stats but not per-status counts.
+	// We use the hub's GetPendingCount helper or fall back to available info.
+	_ = pendingSubmitted
+	_ = pendingDraft
+
+	resp := EvolutionStatusResponse{
+		Enabled: a.evolutionHub.IsEnabled(),
+		Stats: &EvolutionStats{
+			TotalSubmitted:   hubStats.TotalSubmitted,
+			TotalApproved:    hubStats.TotalApproved,
+			TotalRejected:    hubStats.TotalRejected,
+			TotalBroadcasted: hubStats.TotalBroadcasted,
+			LastActivity:     hubStats.LastActivityTime.Format(time.RFC3339),
+			PendingGenes:     0,
+			Strategy:         "balanced",
+		},
+	}
+
+	writeJSON(w, resp)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,15 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
 )
+
+var nilLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func TestScheduler_SubmitAndDispatch(t *testing.T) {
 	reg := NewRegistry(nil)
@@ -23,6 +27,7 @@ func TestScheduler_SubmitAndDispatch(t *testing.T) {
 
 	var dispatchedTaskID, dispatchedClientID string
 	sch := NewScheduler(reg, queue, SchedulerOptions{
+		Logger: nilLogger,
 		OnDispatch: func(task *reef.Task, clientID string) error {
 			dispatchedTaskID = task.ID
 			dispatchedClientID = clientID
@@ -53,7 +58,7 @@ func TestScheduler_SubmitAndDispatch(t *testing.T) {
 func TestScheduler_QueueWhenNoMatch(t *testing.T) {
 	reg := NewRegistry(nil)
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	if err := sch.Submit(task); err != nil {
@@ -71,7 +76,7 @@ func TestScheduler_QueueWhenNoMatch(t *testing.T) {
 func TestScheduler_DispatchOnClientAvailable(t *testing.T) {
 	reg := NewRegistry(nil)
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	// Submit task before any client exists
 	task := reef.NewTask("t1", "write code", "coder", nil)
@@ -106,7 +111,7 @@ func TestScheduler_HandleTaskCompleted(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -141,7 +146,7 @@ func TestScheduler_HandleTaskFailed_EscalationReassign(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 2})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger, MaxEscalations: 2})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -178,7 +183,7 @@ func TestScheduler_HandleTaskFailed_Terminate(t *testing.T) {
 	queue := NewTaskQueue(10, time.Hour)
 	// MaxEscalations > 0 so it doesn't immediately go to ToAdmin;
 	// only one client exists so matchClient returns nil -> Terminate.
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 1})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger, MaxEscalations: 1})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -205,7 +210,7 @@ func TestScheduler_HandleTaskFailed_EscalateToAdmin(t *testing.T) {
 
 	queue := NewTaskQueue(10, time.Hour)
 	// MaxEscalations: 0 forces immediate ToAdmin decision.
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 0})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger, MaxEscalations: 0})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -245,7 +250,7 @@ func TestScheduler_MatchClient_LoadBalancing(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -263,7 +268,7 @@ func TestScheduler_MatchClient_Exclusion(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	// matchClient with exclusion should return nil when c1 is excluded
@@ -298,7 +303,7 @@ func TestScheduler_MatchClient_SkillFilter(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: nilLogger})
 
 	// Task requiring docker should only match c2
 	task := reef.NewTask("t1", "deploy", "coder", []string{"docker"})

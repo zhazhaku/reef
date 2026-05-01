@@ -1,6 +1,8 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/zhazhaku/reef/pkg/reef"
@@ -10,7 +12,7 @@ func TestServerBridge_SubmitTask(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
 	scheduler := NewScheduler(registry, queue, SchedulerOptions{
-		Logger: nil,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	bridge := NewServerBridge(scheduler, registry)
 
@@ -45,7 +47,7 @@ func TestServerBridge_SubmitTask(t *testing.T) {
 func TestServerBridge_SubmitTaskValidation(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
-	scheduler := NewScheduler(registry, queue, SchedulerOptions{})
+	scheduler := NewScheduler(registry, queue, SchedulerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	bridge := NewServerBridge(scheduler, registry)
 
 	// Missing instruction
@@ -64,7 +66,7 @@ func TestServerBridge_SubmitTaskValidation(t *testing.T) {
 func TestServerBridge_QueryTaskNotFound(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
-	scheduler := NewScheduler(registry, queue, SchedulerOptions{})
+	scheduler := NewScheduler(registry, queue, SchedulerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	bridge := NewServerBridge(scheduler, registry)
 
 	_, err := bridge.QueryTask("nonexistent")
@@ -76,7 +78,7 @@ func TestServerBridge_QueryTaskNotFound(t *testing.T) {
 func TestServerBridge_Status(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
-	scheduler := NewScheduler(registry, queue, SchedulerOptions{})
+	scheduler := NewScheduler(registry, queue, SchedulerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	bridge := NewServerBridge(scheduler, registry)
 
 	// Register a client
@@ -106,7 +108,7 @@ func TestServerBridge_Status(t *testing.T) {
 func TestServerBridge_StatusWithTasks(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
-	scheduler := NewScheduler(registry, queue, SchedulerOptions{})
+	scheduler := NewScheduler(registry, queue, SchedulerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	bridge := NewServerBridge(scheduler, registry)
 
 	// Submit some tasks
@@ -125,7 +127,7 @@ func TestServerBridge_StatusWithTasks(t *testing.T) {
 func TestServerBridge_SubmitAndQueryFullCycle(t *testing.T) {
 	registry := NewRegistry(nil)
 	queue := NewTaskQueue(100, 0)
-	scheduler := NewScheduler(registry, queue, SchedulerOptions{})
+	scheduler := NewScheduler(registry, queue, SchedulerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	bridge := NewServerBridge(scheduler, registry)
 
 	// Register a client so the task can be dispatched

@@ -865,6 +865,22 @@ func (s *SQLiteStore) CountApprovedGenes(role string) (int, error) {
 	return count, nil
 }
 
+// CountByStatus counts genes with a specific status.
+func (s *SQLiteStore) CountByStatus(status string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM genes WHERE status = ?`,
+		status,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count genes by status %s: %w", status, err)
+	}
+	return count, nil
+}
+
 // GetTopGenes returns top genes for a role ordered by success_rate DESC.
 func (s *SQLiteStore) GetTopGenes(role string, limit int) ([]*evolution.Gene, error) {
 	s.mu.RLock()

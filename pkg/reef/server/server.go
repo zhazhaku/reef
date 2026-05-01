@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
+	evolutionsrv "github.com/zhazhaku/reef/pkg/reef/evolution/server"
 	"github.com/zhazhaku/reef/pkg/reef/server/notify"
 	"github.com/zhazhaku/reef/pkg/reef/server/store"
 	"github.com/zhazhaku/reef/pkg/reef/server/ui"
@@ -81,6 +82,7 @@ type Server struct {
 	cancelCtx      context.CancelFunc
 	bridge         *ServerBridge
 	timeoutScanner *TimeoutScanner
+	evolutionHub   *evolutionsrv.EvolutionHub
 }
 
 // Bridge returns the ReefBridge for in-process access to the scheduler.
@@ -236,10 +238,7 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 	s.timeoutScanner = NewTimeoutScanner(
 		timeoutInterval,
 		logger,
-		s.scheduler.TasksSnapshot,
-		func(task *reef.Task) {
-			s.scheduler.HandleClientAvailable("") // trigger re-dispatch
-		},
+		s.scheduler,
 		nil, // store is handled separately via OnTaskStateChanged
 	)
 	// Wire up store if available
@@ -372,11 +371,10 @@ func (s *Server) heartbeatScanner(ctx context.Context) {
 		case <-ticker.C:
 			staleIDs := s.registry.ScanStale(s.config.HeartbeatTimeout)
 			for _, id := range staleIDs {
-				// Pause any in-flight tasks for this client
+				// Pause any in-flight tasks for this client (via locked scheduler method)
 				for _, task := range s.scheduler.TasksSnapshot() {
 					if task.AssignedClient == id && task.Status == reef.TaskRunning {
-						_ = task.Transition(reef.TaskPaused)
-						task.PauseReason = "disconnect"
+						_ = s.scheduler.HandleTaskPaused(task.ID, "disconnect")
 					}
 				}
 			}
@@ -384,7 +382,10 @@ func (s *Server) heartbeatScanner(ctx context.Context) {
 			expired := s.queue.Expire(time.Now())
 			for _, task := range expired {
 				s.logger.Warn("task expired from queue", slog.String("task_id", task.ID))
-				_ = task.Transition(reef.TaskFailed)
+				_ = s.scheduler.HandleTaskFailed(task.ID, &reef.TaskError{
+					Type:    "expired",
+					Message: "task expired from queue",
+				}, nil)
 			}
 		}
 	}
@@ -407,6 +408,18 @@ func (s *Server) AdminHandler() *AdminServer { return s.admin }
 
 // UIHandler exposes the UI handler for external access (e.g., event publishing).
 func (s *Server) UIHandler() *ui.Handler { return s.ui }
+
+// SetEvolutionHub sets the evolution hub and wires it into WebSocket server and admin server.
+func (s *Server) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
+	s.evolutionHub = hub
+	s.wsServer.SetEvolutionHub(hub)
+	s.admin.SetEvolutionHub(hub)
+}
+
+// GetEvolutionHub returns the current evolution hub, or nil if not set.
+func (s *Server) GetEvolutionHub() *evolutionsrv.EvolutionHub {
+	return s.evolutionHub
+}
 
 // msgTaskDispatch creates a task_dispatch message populated from the full task.
 func msgTaskDispatch(task *reef.Task) reef.Message {
