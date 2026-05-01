@@ -55,9 +55,11 @@ type SkillMerger interface {
 
 // GateResult is the output of a ServerGatekeeper review.
 type GateResult struct {
-	Passed        bool   `json:"passed"`
-	Reason        string `json:"reason,omitempty"`
-	RejectedLayer int    `json:"rejected_layer,omitempty"` // 1, 2, or 3
+	Passed          bool     `json:"passed"`
+	Reason          string   `json:"reason,omitempty"`           // rejection reason (empty if passed)
+	RejectedLayer   int      `json:"rejected_layer,omitempty"`   // 0 if passed, 1/2/3 if rejected
+	SimilarityScore *float64 `json:"similarity_score,omitempty"` // Layer 2: similarity to existing gene
+	RiskAssessment  string   `json:"risk_assessment,omitempty"`  // Layer 3: LLM risk evaluation summary
 }
 
 // ---------------------------------------------------------------------------
