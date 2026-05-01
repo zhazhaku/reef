@@ -166,3 +166,140 @@ func TestConnector_OnReconnect_ReceivesConn(t *testing.T) {
 		t.Error("callback should receive the same conn that was passed")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Gene broadcast tests (Task 4)
+// ---------------------------------------------------------------------------
+
+func TestConnectorGeneBroadcast_CallbackCalled(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	var receivedPayload reef.GeneBroadcastPayload
+	done := make(chan struct{})
+	c.SetOnGeneBroadcast(func(p reef.GeneBroadcastPayload) {
+		receivedPayload = p
+		close(done)
+	})
+
+	// Build a valid gene_broadcast message.
+	msg, err := reef.NewMessage(reef.MsgGeneBroadcast, "", reef.GeneBroadcastPayload{
+		GeneID:         "gene-001",
+		GeneData:       []byte(`{"id":"gene-001","strategy_name":"test"}`),
+		SourceClientID: "client-1",
+		ApprovedAt:     1714500000000,
+		BroadcastBy:    "server",
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+
+	c.handleGeneBroadcast(msg)
+
+	select {
+	case <-done:
+		// OK
+	case <-time.After(1 * time.Second):
+		t.Fatal("callback was not called within timeout")
+	}
+
+	if receivedPayload.GeneID != "gene-001" {
+		t.Errorf("gene ID = %q, want gene-001", receivedPayload.GeneID)
+	}
+	if receivedPayload.SourceClientID != "client-1" {
+		t.Errorf("source client = %q, want client-1", receivedPayload.SourceClientID)
+	}
+	if receivedPayload.BroadcastBy != "server" {
+		t.Errorf("broadcast by = %q, want server", receivedPayload.BroadcastBy)
+	}
+}
+
+func TestConnectorGeneBroadcast_InvalidJSON_ErrorLogged(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	var callbackCalled bool
+	c.SetOnGeneBroadcast(func(p reef.GeneBroadcastPayload) {
+		callbackCalled = true
+	})
+
+	// Build a message with invalid payload (not a valid GeneBroadcastPayload).
+	msg := reef.Message{
+		MsgType:   reef.MsgGeneBroadcast,
+		Timestamp: 1714500000000,
+		Payload:   []byte(`{"gene_id": 123, "gene_data": "not-json"}`), // gene_id should be string
+	}
+
+	c.handleGeneBroadcast(msg)
+
+	// The callback should NOT be called because decode fails.
+	time.Sleep(50 * time.Millisecond)
+	if callbackCalled {
+		t.Error("callback should not be called for invalid payload")
+	}
+}
+
+func TestConnectorGeneBroadcast_CallbackNotSet_NoCrash(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	msg, err := reef.NewMessage(reef.MsgGeneBroadcast, "", reef.GeneBroadcastPayload{
+		GeneID:         "gene-001",
+		GeneData:       []byte(`{"id":"gene-001","strategy_name":"test"}`),
+		SourceClientID: "client-1",
+		ApprovedAt:     1714500000000,
+		BroadcastBy:    "server",
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+
+	// Should not panic when callback is nil.
+	c.handleGeneBroadcast(msg)
+}
+
+func TestConnectorGeneBroadcast_DuplicateGene_NoCrash(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	callCount := 0
+	done := make(chan struct{})
+	c.SetOnGeneBroadcast(func(p reef.GeneBroadcastPayload) {
+		callCount++
+		if callCount == 2 {
+			close(done)
+		}
+	})
+
+	msg, err := reef.NewMessage(reef.MsgGeneBroadcast, "", reef.GeneBroadcastPayload{
+		GeneID:         "gene-001",
+		GeneData:       []byte(`{"id":"gene-001","strategy_name":"test"}`),
+		SourceClientID: "client-1",
+		ApprovedAt:     1714500000000,
+		BroadcastBy:    "server",
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+
+	// Simulate duplicate broadcast.
+	c.handleGeneBroadcast(msg)
+	c.handleGeneBroadcast(msg)
+
+	select {
+	case <-done:
+		if callCount != 2 {
+			t.Errorf("expected 2 callbacks, got %d", callCount)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("second callback was not called within timeout")
+	}
+}
+
+func TestConnectorGeneBroadcast_SetOnGeneBroadcast(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+	if c.onGeneBroadcast != nil {
+		t.Error("onGeneBroadcast should be nil initially")
+	}
+
+	c.SetOnGeneBroadcast(func(p reef.GeneBroadcastPayload) {})
+	if c.onGeneBroadcast == nil {
+		t.Error("onGeneBroadcast should be set after SetOnGeneBroadcast")
+	}
+}

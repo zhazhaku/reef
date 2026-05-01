@@ -42,6 +42,10 @@ type Connector struct {
 	// a successful reconnection, receiving the new *websocket.Conn.
 	reconnectCallbacks []func(conn *websocket.Conn)
 	rcbMu              sync.Mutex
+
+	// onGeneBroadcast is called when a gene_broadcast message is received
+	// from the server. The callback receives the parsed payload.
+	onGeneBroadcast func(reef.GeneBroadcastPayload)
 }
 
 // ConnectorOptions configures a new Connector.
@@ -165,6 +169,13 @@ func (c *Connector) fireReconnectCallbacks(conn *websocket.Conn) {
 			fn(conn)
 		}(cb)
 	}
+}
+
+// SetOnGeneBroadcast registers a callback for gene_broadcast messages.
+// The callback is invoked in its own goroutine when a gene_broadcast
+// message is received from the server.
+func (c *Connector) SetOnGeneBroadcast(cb func(reef.GeneBroadcastPayload)) {
+	c.onGeneBroadcast = cb
 }
 
 // Close shuts down the connector.
@@ -294,11 +305,38 @@ func (c *Connector) readLoop(ctx context.Context) {
 			continue
 		}
 
+		// Handle gene_broadcast messages directly.
+		if msg.MsgType == reef.MsgGeneBroadcast {
+			c.handleGeneBroadcast(msg)
+			continue
+		}
+
 		select {
 		case c.msgInCh <- msg:
 		default:
 			c.logger.Warn("incoming message dropped, buffer full")
 		}
+	}
+}
+
+// handleGeneBroadcast processes an incoming gene_broadcast message.
+// It decodes the payload and invokes the registered callback in a goroutine.
+// Exported for testing visibility.
+func (c *Connector) handleGeneBroadcast(msg reef.Message) {
+	var payload reef.GeneBroadcastPayload
+	if err := msg.DecodePayload(&payload); err != nil {
+		c.logger.Error("decode gene_broadcast", slog.String("error", err.Error()))
+		return
+	}
+	// Validate the payload.
+	if err := payload.Validate(); err != nil {
+		c.logger.Warn("invalid gene_broadcast payload", slog.String("error", err.Error()))
+		return
+	}
+	if c.onGeneBroadcast != nil {
+		go c.onGeneBroadcast(payload)
+	} else {
+		c.logger.Debug("gene_broadcast received but no handler registered")
 	}
 }
 
