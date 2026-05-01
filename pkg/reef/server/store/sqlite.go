@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/evolution"
 	_ "modernc.org/sqlite"
 )
 
@@ -48,16 +49,23 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	}
 
 	s := &SQLiteStore{db: db}
-	if err := s.migrate(); err != nil {
+	if err := s.createTables(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, fmt.Errorf("create tables: %w", err)
+	}
+
+	// Run versioned schema migrations (adds evolution tables, etc.).
+	if err := s.EnsureMigrated(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("schema migration: %w", err)
 	}
 
 	return s, nil
 }
 
-// migrate creates the schema if it doesn't exist.
-func (s *SQLiteStore) migrate() error {
+// createTables bootstraps the core task/client/DAG schema (version 1).
+// It also seeds schema_version = 1 on first run.
+func (s *SQLiteStore) createTables() error {
 	migrations := []string{
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
@@ -104,7 +112,82 @@ func (s *SQLiteStore) migrate() error {
 			return fmt.Errorf("exec migration: %w", err)
 		}
 	}
+
+	// Seed schema_version = 1 if the tracking table doesn't exist yet.
+	// This ensures Migrate() starts from version 2 for evolution tables.
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);`); err != nil {
+		return fmt.Errorf("create schema_version: %w", err)
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&count); err != nil {
+		return fmt.Errorf("count schema_version: %w", err)
+	}
+	if count == 0 {
+		if _, err := s.db.Exec(`INSERT INTO schema_version (version) VALUES (1)`); err != nil {
+			return fmt.Errorf("seed schema_version: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// Migrate applies all pending schema migrations within a transaction.
+// It is idempotent: if the database is already at CurrentSchemaVersion,
+// this method is a no-op.
+func (s *SQLiteStore) Migrate() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Create schema_version tracking table if it doesn't exist.
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);`); err != nil {
+		return fmt.Errorf("create schema_version table: %w", err)
+	}
+
+	// Query current version.
+	var currentVersion int
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&currentVersion); err != nil {
+		return fmt.Errorf("query schema_version: %w", err)
+	}
+
+	// Nothing to do.
+	if currentVersion >= CurrentSchemaVersion {
+		return nil
+	}
+
+	// Apply migrations in order from currentVersion+1 to CurrentSchemaVersion.
+	for v := currentVersion + 1; v <= CurrentSchemaVersion; v++ {
+		sql, ok := SchemaMigrations[v]
+		if !ok {
+			return fmt.Errorf("missing migration for version %d", v)
+		}
+
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin tx for version %d: %w", v, err)
+		}
+
+		if _, err := tx.Exec(sql); err != nil {
+			tx.Rollback() // ignore rollback error, report original
+			return fmt.Errorf("apply migration version %d: %w", v, err)
+		}
+
+		if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, v); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("record schema_version %d: %w", v, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration version %d: %w", v, err)
+		}
+	}
+
+	return nil
+}
+
+// EnsureMigrated calls Migrate to apply pending schema migrations.
+// Callers can use this to ensure the database is at the latest version.
+func (s *SQLiteStore) EnsureMigrated() error {
+	return s.Migrate()
 }
 
 // SaveTask inserts a new task. Returns an error if the task already exists.
@@ -444,6 +527,515 @@ func (s *SQLiteStore) GetParentTaskID(childID string) (string, error) {
 	return parentID, err
 }
 
+// ---------------------------------------------------------------------------
+// Evolution Events
+// ---------------------------------------------------------------------------
+
+// InsertEvolutionEvent inserts a new evolution event into the database.
+// It sets processed=0 and uses RFC3339 for the created_at TEXT column.
+func (s *SQLiteStore) InsertEvolutionEvent(event *evolution.EvolutionEvent) error {
+	if event == nil {
+		return fmt.Errorf("event cannot be nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`INSERT INTO evolution_events (
+		id, task_id, client_id, event_type, signal, root_cause,
+		gene_id, strategy, importance, created_at, processed
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+		event.ID,
+		event.TaskID,
+		event.ClientID,
+		string(event.EventType),
+		event.Signal,
+		event.RootCause,
+		event.GeneID,
+		event.Strategy,
+		event.Importance,
+		event.CreatedAt.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("insert evolution event: %w", err)
+	}
+	return nil
+}
+
+// GetRecentEvents returns unprocessed events for a client, ordered by created_at DESC.
+// limit=0 returns an empty slice (not an error). limit > 1000 is clamped to 1000.
+func (s *SQLiteStore) GetRecentEvents(clientID string, limit int) ([]*evolution.EvolutionEvent, error) {
+	if limit <= 0 {
+		return []*evolution.EvolutionEvent{}, nil
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT
+		id, task_id, client_id, event_type, signal, root_cause,
+		gene_id, strategy, importance, created_at
+	FROM evolution_events
+	WHERE client_id = ? AND processed = 0
+	ORDER BY created_at DESC LIMIT ?`, clientID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get recent events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []*evolution.EvolutionEvent
+	for rows.Next() {
+		e, err := scanEvolutionEvent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan evolution event: %w", err)
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
+	}
+	if events == nil {
+		events = []*evolution.EvolutionEvent{}
+	}
+	return events, nil
+}
+
+// MarkEventsProcessed marks events as processed and links them to a gene.
+// Uses parameterized queries for all values, including the IN clause.
+func (s *SQLiteStore) MarkEventsProcessed(eventIDs []string, geneID string) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Build parameterized IN clause.
+	query := "UPDATE evolution_events SET processed = 1, gene_id = ? WHERE id IN ("
+	args := []interface{}{geneID}
+	for i, id := range eventIDs {
+		if i > 0 {
+			query += ","
+		}
+		query += "?"
+		args = append(args, id)
+	}
+	query += ")"
+
+	_, err := s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("mark events processed: %w", err)
+	}
+	return nil
+}
+
+// CountEventsByType counts unprocessed events for a client by event type.
+func (s *SQLiteStore) CountEventsByType(clientID string, eventType string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM evolution_events WHERE client_id = ? AND event_type = ? AND processed = 0`,
+		clientID, eventType,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count events by type: %w", err)
+	}
+	return count, nil
+}
+
+// DeleteEventsBefore deletes all events older than the given cutoff time.
+// Returns the number of deleted rows.
+func (s *SQLiteStore) DeleteEventsBefore(cutoff time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(
+		`DELETE FROM evolution_events WHERE created_at < ?`,
+		cutoff.Format(time.RFC3339),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete events before: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
+// KeepTopNEventsPerTask keeps only the newest N events per task.
+// Uses a subquery to identify which rows to keep and deletes the rest.
+func (s *SQLiteStore) KeepTopNEventsPerTask(n int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`DELETE FROM evolution_events WHERE id NOT IN (
+		SELECT id FROM evolution_events e2
+		WHERE e2.task_id = evolution_events.task_id
+		ORDER BY e2.created_at DESC LIMIT ?
+	)`, n)
+	if err != nil {
+		return fmt.Errorf("keep top n events: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Genes
+// ---------------------------------------------------------------------------
+
+// InsertGene inserts a new gene into the database.
+// Slices (Skills, FailureWarnings, SourceEvents) are serialized as JSON strings.
+func (s *SQLiteStore) InsertGene(gene *evolution.Gene) error {
+	if gene == nil {
+		return fmt.Errorf("gene cannot be nil")
+	}
+
+	skillsJSON, err := json.Marshal(gene.Skills)
+	if err != nil {
+		return fmt.Errorf("marshal skills: %w", err)
+	}
+	failureWarningsJSON, err := json.Marshal(gene.FailureWarnings)
+	if err != nil {
+		return fmt.Errorf("marshal failure_warnings: %w", err)
+	}
+	sourceEventsJSON, err := json.Marshal(gene.SourceEvents)
+	if err != nil {
+		return fmt.Errorf("marshal source_events: %w", err)
+	}
+
+	var approvedAt interface{}
+	if gene.ApprovedAt != nil {
+		approvedAt = gene.ApprovedAt.Format(time.RFC3339)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err = s.db.Exec(`INSERT INTO genes (
+		id, strategy_name, role, skills, match_condition, control_signal,
+		failure_warnings, source_events, source_client_id, version,
+		status, stagnation_count, use_count, success_rate,
+		created_at, updated_at, approved_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		gene.ID,
+		gene.StrategyName,
+		gene.Role,
+		string(skillsJSON),
+		gene.MatchCondition,
+		gene.ControlSignal,
+		string(failureWarningsJSON),
+		string(sourceEventsJSON),
+		gene.SourceClientID,
+		gene.Version,
+		string(gene.Status),
+		gene.StagnationCount,
+		gene.UseCount,
+		gene.SuccessRate,
+		gene.CreatedAt.Format(time.RFC3339),
+		gene.UpdatedAt.Format(time.RFC3339),
+		approvedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert gene: %w", err)
+	}
+	return nil
+}
+
+// GetGene retrieves a gene by ID.
+// Returns nil, nil when no gene is found with the given ID.
+func (s *SQLiteStore) GetGene(geneID string) (*evolution.Gene, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	row := s.db.QueryRow(`SELECT
+		id, strategy_name, role, skills, match_condition, control_signal,
+		failure_warnings, source_events, source_client_id, version,
+		status, stagnation_count, use_count, success_rate,
+		created_at, updated_at, approved_at
+	FROM genes WHERE id = ?`, geneID)
+
+	gene, err := scanGene(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get gene: %w", err)
+	}
+	return gene, nil
+}
+
+// UpdateGene updates all fields of an existing gene by ID.
+func (s *SQLiteStore) UpdateGene(gene *evolution.Gene) error {
+	if gene == nil {
+		return fmt.Errorf("gene cannot be nil")
+	}
+
+	skillsJSON, err := json.Marshal(gene.Skills)
+	if err != nil {
+		return fmt.Errorf("marshal skills: %w", err)
+	}
+	failureWarningsJSON, err := json.Marshal(gene.FailureWarnings)
+	if err != nil {
+		return fmt.Errorf("marshal failure_warnings: %w", err)
+	}
+	sourceEventsJSON, err := json.Marshal(gene.SourceEvents)
+	if err != nil {
+		return fmt.Errorf("marshal source_events: %w", err)
+	}
+
+	var approvedAt interface{}
+	if gene.ApprovedAt != nil {
+		approvedAt = gene.ApprovedAt.Format(time.RFC3339)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`UPDATE genes SET
+		strategy_name = ?, role = ?, skills = ?, match_condition = ?,
+		control_signal = ?, failure_warnings = ?, source_events = ?,
+		source_client_id = ?, version = ?, status = ?,
+		stagnation_count = ?, use_count = ?, success_rate = ?,
+		created_at = ?, updated_at = ?, approved_at = ?
+	WHERE id = ?`,
+		gene.StrategyName,
+		gene.Role,
+		string(skillsJSON),
+		gene.MatchCondition,
+		gene.ControlSignal,
+		string(failureWarningsJSON),
+		string(sourceEventsJSON),
+		gene.SourceClientID,
+		gene.Version,
+		string(gene.Status),
+		gene.StagnationCount,
+		gene.UseCount,
+		gene.SuccessRate,
+		gene.CreatedAt.Format(time.RFC3339),
+		gene.UpdatedAt.Format(time.RFC3339),
+		approvedAt,
+		gene.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update gene: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("gene %s not found", gene.ID)
+	}
+	return nil
+}
+
+// GetApprovedGenes returns approved genes for a role, ordered by success_rate DESC, use_count DESC.
+func (s *SQLiteStore) GetApprovedGenes(role string, limit int) ([]*evolution.Gene, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT
+		id, strategy_name, role, skills, match_condition, control_signal,
+		failure_warnings, source_events, source_client_id, version,
+		status, stagnation_count, use_count, success_rate,
+		created_at, updated_at, approved_at
+	FROM genes
+	WHERE role = ? AND status = 'approved'
+	ORDER BY success_rate DESC, use_count DESC LIMIT ?`, role, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get approved genes: %w", err)
+	}
+	defer rows.Close()
+
+	return scanGenes(rows)
+}
+
+// CountApprovedGenes counts approved genes for a role.
+func (s *SQLiteStore) CountApprovedGenes(role string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM genes WHERE role = ? AND status = 'approved'`,
+		role,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count approved genes: %w", err)
+	}
+	return count, nil
+}
+
+// GetTopGenes returns top genes for a role ordered by success_rate DESC.
+func (s *SQLiteStore) GetTopGenes(role string, limit int) ([]*evolution.Gene, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT
+		id, strategy_name, role, skills, match_condition, control_signal,
+		failure_warnings, source_events, source_client_id, version,
+		status, stagnation_count, use_count, success_rate,
+		created_at, updated_at, approved_at
+	FROM genes
+	WHERE role = ?
+	ORDER BY success_rate DESC LIMIT ?`, role, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get top genes: %w", err)
+	}
+	defer rows.Close()
+
+	return scanGenes(rows)
+}
+
+// DeleteStagnantGenes deletes all genes with status='stagnant'.
+// Returns the number of deleted rows.
+func (s *SQLiteStore) DeleteStagnantGenes() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`DELETE FROM genes WHERE status = 'stagnant'`)
+	if err != nil {
+		return 0, fmt.Errorf("delete stagnant genes: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
+// KeepTopGenesPerRole keeps only the top N genes per role by success_rate.
+// Returns the number of deleted rows.
+func (s *SQLiteStore) KeepTopGenesPerRole(limit int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`DELETE FROM genes WHERE id NOT IN (
+		SELECT id FROM genes g2
+		WHERE g2.role = genes.role
+		ORDER BY g2.success_rate DESC LIMIT ?
+	)`, limit)
+	if err != nil {
+		return 0, fmt.Errorf("keep top genes per role: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
+// ---------------------------------------------------------------------------
+// Skill Drafts
+// ---------------------------------------------------------------------------
+
+// SaveSkillDraft inserts a new skill draft into the database.
+func (s *SQLiteStore) SaveSkillDraft(draft *evolution.SkillDraft) error {
+	if draft == nil {
+		return fmt.Errorf("draft cannot be nil")
+	}
+
+	sourceGeneIDsJSON, err := json.Marshal(draft.SourceGeneIDs)
+	if err != nil {
+		return fmt.Errorf("marshal source_gene_ids: %w", err)
+	}
+
+	var reviewedAt interface{}
+	if draft.ReviewedAt != nil {
+		reviewedAt = draft.ReviewedAt.Format(time.RFC3339)
+	}
+	var publishedAt interface{}
+	if draft.PublishedAt != nil {
+		publishedAt = draft.PublishedAt.Format(time.RFC3339)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err = s.db.Exec(`INSERT INTO skill_drafts (
+		id, role, skill_name, content, source_gene_ids,
+		status, review_comment, created_at, reviewed_at, published_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		draft.ID,
+		draft.Role,
+		draft.SkillName,
+		draft.Content,
+		string(sourceGeneIDsJSON),
+		string(draft.Status),
+		draft.ReviewComment,
+		draft.CreatedAt.Format(time.RFC3339),
+		reviewedAt,
+		publishedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert skill draft: %w", err)
+	}
+	return nil
+}
+
+// GetSkillDraft retrieves a skill draft by ID.
+// Returns nil, nil when no draft is found.
+func (s *SQLiteStore) GetSkillDraft(draftID string) (*evolution.SkillDraft, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	row := s.db.QueryRow(`SELECT
+		id, role, skill_name, content, source_gene_ids,
+		status, review_comment, created_at, reviewed_at, published_at
+	FROM skill_drafts WHERE id = ?`, draftID)
+
+	draft, err := scanSkillDraft(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get skill draft: %w", err)
+	}
+	return draft, nil
+}
+
+// UpdateSkillDraft updates all fields of an existing skill draft by ID.
+func (s *SQLiteStore) UpdateSkillDraft(draft *evolution.SkillDraft) error {
+	if draft == nil {
+		return fmt.Errorf("draft cannot be nil")
+	}
+
+	sourceGeneIDsJSON, err := json.Marshal(draft.SourceGeneIDs)
+	if err != nil {
+		return fmt.Errorf("marshal source_gene_ids: %w", err)
+	}
+
+	var reviewedAt interface{}
+	if draft.ReviewedAt != nil {
+		reviewedAt = draft.ReviewedAt.Format(time.RFC3339)
+	}
+	var publishedAt interface{}
+	if draft.PublishedAt != nil {
+		publishedAt = draft.PublishedAt.Format(time.RFC3339)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`UPDATE skill_drafts SET
+		role = ?, skill_name = ?, content = ?, source_gene_ids = ?,
+		status = ?, review_comment = ?, created_at = ?,
+		reviewed_at = ?, published_at = ?
+	WHERE id = ?`,
+		draft.Role,
+		draft.SkillName,
+		draft.Content,
+		string(sourceGeneIDsJSON),
+		string(draft.Status),
+		draft.ReviewComment,
+		draft.CreatedAt.Format(time.RFC3339),
+		reviewedAt,
+		publishedAt,
+		draft.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update skill draft: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("skill draft %s not found", draft.ID)
+	}
+	return nil
+}
+
 // Close closes the underlying database connection.
 func (s *SQLiteStore) Close() error {
 	s.mu.Lock()
@@ -552,4 +1144,139 @@ func timePtrToUnix(t *time.Time) interface{} {
 		return nil
 	}
 	return t.Unix()
+}
+
+// ---------------------------------------------------------------------------
+// Evolution scan helpers
+// ---------------------------------------------------------------------------
+
+// scanEvolutionEvent scans a row into an EvolutionEvent.
+func scanEvolutionEvent(sc scanner) (*evolution.EvolutionEvent, error) {
+	var e evolution.EvolutionEvent
+	var eventType, strategy, createdAt string
+
+	err := sc.Scan(
+		&e.ID, &e.TaskID, &e.ClientID, &eventType, &e.Signal, &e.RootCause,
+		&e.GeneID, &strategy, &e.Importance, &createdAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	e.EventType = evolution.EventType(eventType)
+	e.Strategy = strategy
+	e.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	return &e, nil
+}
+
+// scanGene scans a row into a Gene.
+func scanGene(sc scanner) (*evolution.Gene, error) {
+	var g evolution.Gene
+	var status, skillsJSON, failureWarningsJSON, sourceEventsJSON string
+	var createdAt, updatedAt string
+	var approvedAt sql.NullString
+
+	err := sc.Scan(
+		&g.ID, &g.StrategyName, &g.Role, &skillsJSON, &g.MatchCondition,
+		&g.ControlSignal, &failureWarningsJSON, &sourceEventsJSON,
+		&g.SourceClientID, &g.Version, &status, &g.StagnationCount,
+		&g.UseCount, &g.SuccessRate, &createdAt, &updatedAt, &approvedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	g.Status = evolution.GeneStatus(status)
+
+	if err := json.Unmarshal([]byte(skillsJSON), &g.Skills); err != nil {
+		return nil, fmt.Errorf("unmarshal skills: %w", err)
+	}
+	if err := json.Unmarshal([]byte(failureWarningsJSON), &g.FailureWarnings); err != nil {
+		return nil, fmt.Errorf("unmarshal failure_warnings: %w", err)
+	}
+	if err := json.Unmarshal([]byte(sourceEventsJSON), &g.SourceEvents); err != nil {
+		return nil, fmt.Errorf("unmarshal source_events: %w", err)
+	}
+
+	g.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	g.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
+	}
+	if approvedAt.Valid && approvedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, approvedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse approved_at: %w", err)
+		}
+		g.ApprovedAt = &t
+	}
+
+	return &g, nil
+}
+
+// scanGenes scans multiple gene rows.
+func scanGenes(rows *sql.Rows) ([]*evolution.Gene, error) {
+	var genes []*evolution.Gene
+	for rows.Next() {
+		g, err := scanGene(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan gene: %w", err)
+		}
+		genes = append(genes, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate genes: %w", err)
+	}
+	if genes == nil {
+		genes = []*evolution.Gene{}
+	}
+	return genes, nil
+}
+
+// scanSkillDraft scans a row into a SkillDraft.
+func scanSkillDraft(sc scanner) (*evolution.SkillDraft, error) {
+	var d evolution.SkillDraft
+	var status, sourceGeneIDsJSON, createdAt string
+	var reviewedAt, publishedAt sql.NullString
+
+	err := sc.Scan(
+		&d.ID, &d.Role, &d.SkillName, &d.Content, &sourceGeneIDsJSON,
+		&status, &d.ReviewComment, &createdAt, &reviewedAt, &publishedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	d.Status = evolution.SkillDraftStatus(status)
+
+	if err := json.Unmarshal([]byte(sourceGeneIDsJSON), &d.SourceGeneIDs); err != nil {
+		return nil, fmt.Errorf("unmarshal source_gene_ids: %w", err)
+	}
+
+	d.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	if reviewedAt.Valid && reviewedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, reviewedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse reviewed_at: %w", err)
+		}
+		d.ReviewedAt = &t
+	}
+	if publishedAt.Valid && publishedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, publishedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse published_at: %w", err)
+		}
+		d.PublishedAt = &t
+	}
+
+	return &d, nil
 }
