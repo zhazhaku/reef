@@ -107,6 +107,11 @@ func (r *Registry) ListByRole(role string) []*reef.ClientInfo {
 	return out
 }
 
+// FindByRole is an alias for ListByRole used by the ClaimBoard RoleFinder interface.
+func (r *Registry) FindByRole(role string) []*reef.ClientInfo {
+	return r.ListByRole(role)
+}
+
 // ScanStale iterates all clients and marks those whose heartbeat has
 // exceeded the given timeout as stale. Returns the list of newly stale IDs.
 func (r *Registry) ScanStale(timeout time.Duration) []string {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sipeed/reef/pkg/reef"
+	evserver "github.com/sipeed/reef/pkg/reef/evolution/server"
 )
 
 // Scheduler matches tasks to available Clients and handles dispatch.
@@ -19,6 +20,8 @@ type Scheduler struct {
 	maxEscalations int
 	onDispatch     func(taskID, clientID string) error
 	onRequeue      func(task *reef.Task)
+
+	claimBoard *evserver.ClaimBoard // nil if disabled
 }
 
 // SchedulerOptions configures the scheduler.
@@ -45,6 +48,8 @@ func NewScheduler(registry *Registry, queue *TaskQueue, opts SchedulerOptions) *
 
 // Submit creates a new task and attempts to schedule it immediately.
 // If no matching client is available, the task is queued.
+// When claimBoard is configured and task priority ≤ MaxPriorityClaim,
+// the task is routed through the claim board for autonomous claiming.
 func (s *Scheduler) Submit(task *reef.Task) error {
 	s.mu.Lock()
 	s.tasks[task.ID] = task
@@ -52,6 +57,11 @@ func (s *Scheduler) Submit(task *reef.Task) error {
 
 	if err := task.Transition(reef.TaskQueued); err != nil {
 		return fmt.Errorf("transition to queued: %w", err)
+	}
+
+	// Route through ClaimBoard for low-priority tasks
+	if s.claimBoard != nil {
+		return s.claimBoard.Post(task)
 	}
 
 	if err := s.queue.Enqueue(task); err != nil {
@@ -256,6 +266,22 @@ func (s *Scheduler) TasksSnapshot() []*reef.Task {
 		out = append(out, t)
 	}
 	return out
+}
+
+// SetClaimBoard sets the ClaimBoard for low-priority task routing.
+// Pass nil to disable claim board routing.
+func (s *Scheduler) SetClaimBoard(cb *evserver.ClaimBoard) {
+	s.claimBoard = cb
+}
+
+// DispatchTask is a public wrapper around the internal dispatch logic.
+// It is used by the ClaimBoard to dispatch a claimed task directly to a client.
+func (s *Scheduler) DispatchTask(clientID string, task *reef.Task) error {
+	client := s.registry.Get(clientID)
+	if client == nil {
+		return fmt.Errorf("client %s not found", clientID)
+	}
+	return s.dispatch(task, client)
 }
 
 // ---------------------------------------------------------------------------
