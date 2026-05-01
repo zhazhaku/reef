@@ -516,3 +516,154 @@ func TestSubmitter_PayloadFields(t *testing.T) {
 		t.Errorf("ClientID = %s, want client-xyz", payload.ClientID)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// End-to-end integration test: Gate → Submit → Queue → Drain
+// ---------------------------------------------------------------------------
+
+func TestGateSubmitEndToEnd(t *testing.T) {
+	// 1. Create LocalGatekeeper with default config
+	gk := NewGatekeeper(GateConfig{EnableSemanticCheck: true}, nil)
+
+	// 2. Create GeneSubmitter (offline initially)
+	s := NewGeneSubmitter(SubmitterConfig{MaxRetries: 1}, nil)
+
+	// 3. Generate a valid Gene, run through Gate → should pass
+	gene1 := makeTestGene("gene-e2e-1")
+	gene1.ControlSignal = "echo hello world"
+
+	pass, reason := gk.CheckWithReason(gene1)
+	if !pass {
+		t.Fatalf("gate rejected valid gene: %s", reason)
+	}
+
+	// 4. Submit with nil conn → gene goes to queue
+	s.Submit(gene1)
+	if s.QueueLen() != 1 {
+		t.Errorf("queue length = %d, want 1", s.QueueLen())
+	}
+
+	// 5. Create mock WebSocket and reconnect — drain should submit queued gene
+	mock := newMockWSServer()
+	defer mock.Close()
+
+	conn, err := connectToMockWS(mock.URL())
+	if err != nil {
+		t.Fatalf("connect mock WS: %v", err)
+	}
+	defer conn.Close()
+
+	s.OnReconnect(conn)
+
+	// Wait for drain goroutine
+	time.Sleep(200 * time.Millisecond)
+
+	// Should receive MsgGeneSubmit for gene1
+	msg1 := mock.NextMessage(2 * time.Second)
+	if msg1 == nil {
+		t.Fatal("expected gene_submit message after drain, got nil")
+	}
+	if msg1.MsgType != reef.MsgGeneSubmit {
+		t.Errorf("msg type = %s, want gene_submit", msg1.MsgType)
+	}
+
+	var payload1 reef.GeneSubmitPayload
+	if err := msg1.DecodePayload(&payload1); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload1.GeneID != "gene-e2e-1" {
+		t.Errorf("GeneID = %s, want gene-e2e-1", payload1.GeneID)
+	}
+	if payload1.ClientID != "client-1" {
+		t.Errorf("ClientID = %s, want client-1", payload1.ClientID)
+	}
+
+	// 6. Submit a valid gene while connected → goes directly to WS
+	gene2 := makeTestGene("gene-e2e-2")
+	gene2.ControlSignal = "ls -la"
+
+	pass, _ = gk.CheckWithReason(gene2)
+	if !pass {
+		t.Fatalf("gate rejected valid gene2")
+	}
+
+	s.Submit(gene2)
+
+	msg2 := mock.NextMessage(2 * time.Second)
+	if msg2 == nil {
+		t.Fatal("expected gene_submit for gene2, got nil")
+	}
+	var payload2 reef.GeneSubmitPayload
+	msg2.DecodePayload(&payload2)
+	if payload2.GeneID != "gene-e2e-2" {
+		t.Errorf("GeneID = %s, want gene-e2e-2", payload2.GeneID)
+	}
+
+	// Verify gene2 status is submitted
+	if gene2.Status != evolution.GeneStatusSubmitted {
+		t.Errorf("gene2 status = %s, want submitted", gene2.Status)
+	}
+
+	// 7. Submit a gene with dangerous pattern → Gate rejects → not submitted
+	gene3 := makeTestGene("gene-e2e-3")
+	gene3.ControlSignal = "rm -rf /tmp/data"
+
+	pass, reason = gk.CheckWithReason(gene3)
+	if pass {
+		t.Error("gate should reject dangerous gene")
+	}
+	if !strings.Contains(reason, "semantics") {
+		t.Errorf("rejection reason should be semantic, got: %s", reason)
+	}
+
+	// Gate rejected — do NOT submit. Verify gene status unchanged.
+	if gene3.Status != evolution.GeneStatusDraft {
+		t.Errorf("rejected gene status = %s, want draft", gene3.Status)
+	}
+
+	// 8. Disconnect mock WS → Submit → gene goes to queue
+	conn.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	gene4 := makeTestGene("gene-e2e-4")
+	gene4.ControlSignal = "cat /etc/hosts"
+
+	pass, _ = gk.CheckWithReason(gene4)
+	if !pass {
+		t.Fatalf("gate rejected valid gene4")
+	}
+
+	// Set conn to nil to simulate disconnection
+	s.SetConn(nil)
+	s.Submit(gene4)
+
+	if s.QueueLen() != 1 {
+		t.Errorf("queue length after disconnect = %d, want 1", s.QueueLen())
+	}
+
+	// 9. Reconnect → drainQueue → mock WS receives queued message
+	conn2, err := connectToMockWS(mock.URL())
+	if err != nil {
+		t.Fatalf("reconnect mock WS: %v", err)
+	}
+	defer conn2.Close()
+
+	s.OnReconnect(conn2)
+	time.Sleep(200 * time.Millisecond)
+
+	msg4 := mock.NextMessage(2 * time.Second)
+	if msg4 == nil {
+		t.Fatal("expected gene_submit for gene4 after reconnect drain")
+	}
+	var payload4 reef.GeneSubmitPayload
+	msg4.DecodePayload(&payload4)
+	if payload4.GeneID != "gene-e2e-4" {
+		t.Errorf("GeneID = %s, want gene-e2e-4", payload4.GeneID)
+	}
+
+	// Queue should be empty after drain
+	time.Sleep(100 * time.Millisecond)
+	if s.QueueLen() != 0 {
+		t.Errorf("queue should be empty after drain, got %d", s.QueueLen())
+	}
+}
