@@ -34,9 +34,14 @@ type Connector struct {
 	msgInCh   chan reef.Message // messages received from server
 	closed    bool
 
-	backoff     *Backoff
-	heartbeatInterval time.Duration
-	logger      *slog.Logger
+	backoff            *Backoff
+	heartbeatInterval  time.Duration
+	logger             *slog.Logger
+
+	// reconnectCallbacks are invoked (each in its own goroutine) after
+	// a successful reconnection, receiving the new *websocket.Conn.
+	reconnectCallbacks []func(conn *websocket.Conn)
+	rcbMu              sync.Mutex
 }
 
 // ConnectorOptions configures a new Connector.
@@ -123,6 +128,44 @@ func (c *Connector) Role() string { return c.role }
 
 // ServerURL returns the configured server URL.
 func (c *Connector) ServerURL() string { return c.serverURL }
+
+// WSConn returns the current WebSocket connection (read-locked).
+// Returns nil if not connected.
+func (c *Connector) WSConn() *websocket.Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn
+}
+
+// OnReconnect registers a callback that is invoked after each successful
+// reconnection. The callback receives the new *websocket.Conn and runs in
+// its own goroutine so it cannot block the Connector's reconnect loop.
+func (c *Connector) OnReconnect(cb func(conn *websocket.Conn)) {
+	c.rcbMu.Lock()
+	defer c.rcbMu.Unlock()
+	c.reconnectCallbacks = append(c.reconnectCallbacks, cb)
+}
+
+// fireReconnectCallbacks invokes all registered reconnect callbacks,
+// each in its own goroutine.
+func (c *Connector) fireReconnectCallbacks(conn *websocket.Conn) {
+	c.rcbMu.Lock()
+	cbs := make([]func(conn *websocket.Conn), len(c.reconnectCallbacks))
+	copy(cbs, c.reconnectCallbacks)
+	c.rcbMu.Unlock()
+
+	for _, cb := range cbs {
+		go func(fn func(conn *websocket.Conn)) {
+			defer func() {
+				if r := recover(); r != nil {
+					c.logger.Error("reconnect callback panicked",
+						slog.Any("panic", r))
+				}
+			}()
+			fn(conn)
+		}(cb)
+	}
+}
 
 // Close shuts down the connector.
 func (c *Connector) Close() error {
@@ -324,6 +367,13 @@ func (c *Connector) reconnectLoop(ctx context.Context) {
 					c.triggerReconnect()
 				} else {
 					c.logger.Info("reconnected successfully")
+					// Fire reconnect callbacks with the new connection
+					c.mu.Lock()
+					newConn := c.conn
+					c.mu.Unlock()
+					if newConn != nil {
+						c.fireReconnectCallbacks(newConn)
+					}
 				}
 			}
 		}

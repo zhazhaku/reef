@@ -1,9 +1,11 @@
 package client
 
 import (
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/zhazhaku/reef/pkg/reef"
 )
 
@@ -68,5 +70,99 @@ func TestConnector_SendClosed(t *testing.T) {
 	msg, _ := reef.NewMessage(reef.MsgHeartbeat, "", reef.HeartbeatPayload{})
 	if err := c.Send(msg); err == nil {
 		t.Error("expected error when sending to closed connector")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reconnect callback tests
+// ---------------------------------------------------------------------------
+
+func TestConnector_WSConn_NilWhenDisconnected(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+	conn := c.WSConn()
+	if conn != nil {
+		t.Error("WSConn should return nil when not connected")
+	}
+}
+
+func TestConnector_OnReconnect_RegistersCallback(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	called := false
+	c.OnReconnect(func(conn *websocket.Conn) {
+		called = true
+	})
+
+	// Fire callbacks directly (testing the mechanism)
+	c.fireReconnectCallbacks(nil)
+
+	// Give goroutine time to execute
+	time.Sleep(50 * time.Millisecond)
+
+	if !called {
+		t.Error("reconnect callback was not called")
+	}
+}
+
+func TestConnector_OnReconnect_MultipleCallbacks(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	count := 0
+	var mu sync.Mutex
+	cb := func(conn *websocket.Conn) {
+		mu.Lock()
+		count++
+		mu.Unlock()
+	}
+
+	c.OnReconnect(cb)
+	c.OnReconnect(cb)
+	c.OnReconnect(cb)
+
+	c.fireReconnectCallbacks(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	if count != 3 {
+		t.Errorf("expected 3 callbacks, got %d", count)
+	}
+	mu.Unlock()
+}
+
+func TestConnector_OnReconnect_PanicsDontCrash(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	normalCalled := false
+	c.OnReconnect(func(conn *websocket.Conn) {
+		panic("intentional panic in callback")
+	})
+	c.OnReconnect(func(conn *websocket.Conn) {
+		normalCalled = true
+	})
+
+	// Should not panic
+	c.fireReconnectCallbacks(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	if !normalCalled {
+		t.Error("second callback should still be called after panic in first")
+	}
+}
+
+func TestConnector_OnReconnect_ReceivesConn(t *testing.T) {
+	c := NewConnector(ConnectorOptions{})
+
+	var receivedConn *websocket.Conn
+	c.OnReconnect(func(conn *websocket.Conn) {
+		receivedConn = conn
+	})
+
+	// Use a minimal websocket.Conn — just verify the callback receives it
+	dummyConn := &websocket.Conn{}
+	c.fireReconnectCallbacks(dummyConn)
+	time.Sleep(50 * time.Millisecond)
+
+	if receivedConn != dummyConn {
+		t.Error("callback should receive the same conn that was passed")
 	}
 }
