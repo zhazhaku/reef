@@ -81,6 +81,42 @@ type TaskError struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
+// BlockReport captures diagnostic information when a task enters the Blocked state.
+type BlockReport struct {
+	Type    string `json:"type"`    // "tool_error", "context_corruption", "resource_unavailable", "unknown"
+	Message string `json:"message"` // Human-readable description of the block
+	Context string `json:"context"` // Additional diagnostic context (tool name, stack trace snippet, etc.)
+}
+
+// IsValid returns false if Type is empty, Message is empty, or Type is not one of the 4 known values.
+// Context field is optional and may be empty.
+func (br BlockReport) IsValid() bool {
+	if br.Type == "" || br.Message == "" {
+		return false
+	}
+	switch br.Type {
+	case "tool_error", "context_corruption", "resource_unavailable", "unknown":
+		return true
+	}
+	return false
+}
+
+// TaskQuality aggregates quality signals about a task's execution.
+// It is set by the EvolutionRecorder after task completion and used by
+// the LocalGeneEvolver to calculate event importance.
+type TaskQuality struct {
+	Score        float64 `json:"score"`         // 0.0-1.0 overall quality score
+	SignalsCount int     `json:"signals_count"` // Number of evolution signals extracted
+	Evolved      bool    `json:"evolved"`       // Whether a Gene was generated from this task
+}
+
+// IsZero returns true if Score == 0, SignalsCount == 0, and Evolved == false.
+// Used to skip serialization of zero-valued TaskQuality.
+// Note: SignalsCount may be 0 even if Evolved is true (evolver ran but produced no usable signal).
+func (tq TaskQuality) IsZero() bool {
+	return tq.Score == 0 && tq.SignalsCount == 0 && !tq.Evolved
+}
+
 // AttemptRecord tracks a single execution attempt.
 type AttemptRecord struct {
 	AttemptNumber int       `json:"attempt_number"`
@@ -116,6 +152,16 @@ type Task struct {
 	CompletedAt     *time.Time
 	EscalationCount int
 	PauseReason     string // e.g. "user_request", "disconnect"
+
+	// BlockReport captures diagnostic info when a task is blocked.
+	// It is set by the caller after Transition(TaskBlocked).
+	// When non-nil but Status != TaskBlocked, it serves as an audit trail
+	// (e.g., after recovery the report remains for post-mortem analysis).
+	BlockReport *BlockReport `json:"block_report,omitempty"`
+
+	// Quality aggregates evolution quality signals set by EvolutionRecorder
+	// after task completion.
+	Quality *TaskQuality `json:"quality,omitempty"`
 }
 
 // NewTask creates a new task with default values.
@@ -127,7 +173,7 @@ func NewTask(id, instruction, requiredRole string, requiredSkills []string) *Tas
 		RequiredRole:   requiredRole,
 		RequiredSkills: requiredSkills,
 		MaxRetries:     3,
-		TimeoutMs:      300_000, // 5 minutes
+		TimeoutMs:      600_000, // 10 minutes
 		Priority:       5,       // default medium priority
 		CreatedAt:      time.Now(),
 	}
