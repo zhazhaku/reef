@@ -20,6 +20,7 @@ type AdminServer struct {
 	token        string // Bearer token for admin API authentication; empty = no auth
 	logger       *slog.Logger
 	evolutionHub *evolutionsrv.EvolutionHub
+	skillMerger  *evolutionsrv.SkillMergerImpl
 }
 
 // NewAdminServer creates an admin HTTP handler.
@@ -38,12 +39,19 @@ func (a *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/status", a.authMiddleware(a.handleStatus))
 	mux.HandleFunc("/admin/tasks", a.authMiddleware(a.handleTasks))
 	mux.HandleFunc("/admin/evolution/status", a.authMiddleware(a.handleEvolutionStatus))
+	mux.HandleFunc("/admin/skills/approve", a.authMiddleware(a.handleSkillApprove))
+	mux.HandleFunc("/admin/skills/reject", a.authMiddleware(a.handleSkillReject))
 	mux.HandleFunc("/tasks", a.authMiddleware(a.handleSubmitTask))
 }
 
 // SetEvolutionHub sets the evolution hub for the admin server.
 func (a *AdminServer) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
 	a.evolutionHub = hub
+}
+
+// SetSkillMerger sets the skill merger for the admin server.
+func (a *AdminServer) SetSkillMerger(merger *evolutionsrv.SkillMergerImpl) {
+	a.skillMerger = merger
 }
 
 // authMiddleware wraps a handler with Bearer token authentication.
@@ -362,4 +370,102 @@ func writeJSON(w http.ResponseWriter, v any) {
 		return
 	}
 	w.Write(data)
+}
+
+// ---------------------------------------------------------------------------
+// Skill draft approval/rejection endpoints
+// ---------------------------------------------------------------------------
+
+// SkillApproveRequest is the payload for POST /admin/skills/approve.
+type SkillApproveRequest struct {
+	DraftID string `json:"draft_id"`
+}
+
+// SkillRejectRequest is the payload for POST /admin/skills/reject.
+type SkillRejectRequest struct {
+	DraftID string `json:"draft_id"`
+	Reason  string `json:"reason"`
+}
+
+func (a *AdminServer) handleSkillApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.skillMerger == nil {
+		http.Error(w, "skill merger not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req SkillApproveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.DraftID == "" {
+		http.Error(w, "draft_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.skillMerger.Approve(req.DraftID); err != nil {
+		a.logger.Warn("skill approve failed",
+			slog.String("draft_id", req.DraftID),
+			slog.String("error", err.Error()))
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	a.logger.Info("skill approved via admin",
+		slog.String("draft_id", req.DraftID))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":   "approved",
+		"draft_id": req.DraftID,
+	})
+}
+
+func (a *AdminServer) handleSkillReject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.skillMerger == nil {
+		http.Error(w, "skill merger not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req SkillRejectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.DraftID == "" {
+		http.Error(w, "draft_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.skillMerger.Reject(req.DraftID, req.Reason); err != nil {
+		a.logger.Warn("skill reject failed",
+			slog.String("draft_id", req.DraftID),
+			slog.String("error", err.Error()))
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	a.logger.Info("skill rejected via admin",
+		slog.String("draft_id", req.DraftID),
+		slog.String("reason", req.Reason))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":   "rejected",
+		"draft_id": req.DraftID,
+	})
 }

@@ -42,11 +42,12 @@ type Notifier interface {
 
 // Notification represents a notification event from the SkillMergerImpl.
 type Notification struct {
-	Type    string // "skill_draft_ready", "skill_approved", "skill_rejected"
-	Title   string
-	Body    string
-	DraftID string
-	Role    string
+	Type      string    // "skill_draft_ready", "skill_approved", "skill_rejected"
+	Title     string
+	Body      string
+	DraftID   string
+	Role      string
+	Timestamp time.Time
 }
 
 // ---------------------------------------------------------------------------
@@ -283,12 +284,14 @@ func (m *SkillMergerImpl) merge(ctx context.Context, role string) {
 	// Notify admin.
 	if m.notifier != nil {
 		notification := Notification{
-			Type:    "skill_draft_ready",
-			Title:   "New SKILL.md draft",
-			Body:    fmt.Sprintf("Skill '%s' for role '%s' generated from %d genes", skillName, role, len(genes)),
-			DraftID: draft.ID,
-			Role:    role,
+			Type:      "skill_draft_ready",
+			Title:     "New SKILL.md draft",
+			Body:      fmt.Sprintf("Skill '%s' for role '%s' generated from %d genes", skillName, role, len(genes)),
+			DraftID:   draft.ID,
+			Role:      role,
+			Timestamp: time.Now(),
 		}
+
 		if err := m.notifier.NotifyAdmin(notification); err != nil {
 			m.logger.Error("failed to notify admin about draft",
 				slog.String("draft_id", draft.ID),
@@ -546,11 +549,12 @@ func (m *SkillMergerImpl) Approve(draftID string) error {
 	// Notify admin.
 	if m.notifier != nil {
 		notification := Notification{
-			Type:    "skill_approved",
-			Title:   "SKILL.md Approved",
-			Body:    fmt.Sprintf("Skill '%s' for role '%s' has been approved and published to %s", draft.SkillName, draft.Role, skillPath),
-			DraftID: draft.ID,
-			Role:    draft.Role,
+			Type:      "skill_approved",
+			Title:     "SKILL.md Approved",
+			Body:      fmt.Sprintf("Skill '%s' for role '%s' has been approved and published to %s", draft.SkillName, draft.Role, skillPath),
+			DraftID:   draft.ID,
+			Role:      draft.Role,
+			Timestamp: time.Now(),
 		}
 		if err := m.notifier.NotifyAdmin(notification); err != nil {
 			m.logger.Warn("failed to notify admin about approval",
@@ -597,11 +601,12 @@ func (m *SkillMergerImpl) Reject(draftID string, reason string) error {
 	// Notify admin.
 	if m.notifier != nil {
 		notification := Notification{
-			Type:    "skill_rejected",
-			Title:   "SKILL.md Rejected",
-			Body:    fmt.Sprintf("Skill '%s' for role '%s' has been rejected. Reason: %s", draft.SkillName, draft.Role, reason),
-			DraftID: draft.ID,
-			Role:    draft.Role,
+			Type:      "skill_rejected",
+			Title:     "SKILL.md Rejected",
+			Body:      fmt.Sprintf("Skill '%s' for role '%s' has been rejected. Reason: %s", draft.SkillName, draft.Role, reason),
+			DraftID:   draft.ID,
+			Role:      draft.Role,
+			Timestamp: time.Now(),
 		}
 		if err := m.notifier.NotifyAdmin(notification); err != nil {
 			m.logger.Warn("failed to notify admin about rejection",
