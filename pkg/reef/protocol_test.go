@@ -7,13 +7,37 @@ import (
 
 func TestMessageType_IsValid(t *testing.T) {
 	tests := []struct {
-		mt      MessageType
-		want    bool
+		mt   MessageType
+		want bool
 	}{
+		// Original 13 types
 		{MsgRegister, true},
+		{MsgRegisterAck, true},
+		{MsgRegisterNack, true},
 		{MsgHeartbeat, true},
 		{MsgTaskDispatch, true},
+		{MsgTaskProgress, true},
+		{MsgTaskCompleted, true},
+		{MsgTaskFailed, true},
+		{MsgCancel, true},
+		{MsgPause, true},
+		{MsgResume, true},
+		{MsgControlAck, true},
+		// Phase 6: Evolution Engine messages
+		{MsgGeneSubmit, true},
+		{MsgGeneApproved, true},
+		{MsgGeneRejected, true},
+		{MsgGeneBroadcast, true},
+		{MsgSkillDraftProposed, true},
+		{MsgTaskClaim, true},
+		{MsgTaskAvailable, true},
+		{MsgTaskClaimed, true},
+		{MsgTaskBlock, true},
+		// Phase 7: Raft messages
+		{MsgRaftLeaderChange, true},
+		// Invalid
 		{MessageType("unknown"), false},
+		{MessageType("nonexistent"), false},
 		{MessageType(""), false},
 	}
 	for _, tt := range tests {
@@ -64,11 +88,14 @@ func TestNewMessage_UnknownType(t *testing.T) {
 }
 
 func TestAllPayloadTypes_MarshalUnmarshal(t *testing.T) {
+	geneJSON := json.RawMessage(`{"gene_id":"g1","fitness":0.9}`)
+
 	tests := []struct {
 		name    string
 		msgType MessageType
 		payload any
 	}{
+		// Original 13 types
 		{
 			name:    "register",
 			msgType: MsgRegister,
@@ -115,9 +142,71 @@ func TestAllPayloadTypes_MarshalUnmarshal(t *testing.T) {
 			payload: ControlPayload{ControlType: "cancel", TaskID: "t1"},
 		},
 		{
+			name:    "pause",
+			msgType: MsgPause,
+			payload: ControlPayload{ControlType: "pause", TaskID: "t1"},
+		},
+		{
+			name:    "resume",
+			msgType: MsgResume,
+			payload: ControlPayload{ControlType: "resume", TaskID: "t1"},
+		},
+		{
 			name:    "control_ack",
 			msgType: MsgControlAck,
 			payload: ControlAckPayload{ControlType: "cancel", TaskID: "t1"},
+		},
+		// Phase 6: Evolution Engine messages
+		{
+			name:    "gene_submit",
+			msgType: MsgGeneSubmit,
+			payload: GeneSubmitPayload{GeneID: "g1", GeneData: geneJSON, ClientID: "c1"},
+		},
+		{
+			name:    "gene_approved",
+			msgType: MsgGeneApproved,
+			payload: GeneApprovedPayload{GeneID: "g1", ApprovedBy: "srv1"},
+		},
+		{
+			name:    "gene_rejected",
+			msgType: MsgGeneRejected,
+			payload: GeneRejectedPayload{GeneID: "g1", Reason: "bad", Layer: 2},
+		},
+		{
+			name:    "gene_broadcast",
+			msgType: MsgGeneBroadcast,
+			payload: GeneBroadcastPayload{GeneID: "g1", GeneData: geneJSON, SourceClientID: "c1"},
+		},
+		{
+			name:    "skill_draft_proposed",
+			msgType: MsgSkillDraftProposed,
+			payload: SkillDraftProposedPayload{DraftID: "d1", Role: "coder", SkillName: "test", GeneCount: 3},
+		},
+		{
+			name:    "task_claim",
+			msgType: MsgTaskClaim,
+			payload: TaskClaimPayload{TaskID: "t1", ClientID: "c1"},
+		},
+		{
+			name:    "task_available",
+			msgType: MsgTaskAvailable,
+			payload: TaskAvailablePayload{TaskID: "t1", RequiredRole: "coder", Priority: 5, ExpiresAt: 1000},
+		},
+		{
+			name:    "task_claimed",
+			msgType: MsgTaskClaimed,
+			payload: TaskClaimedPayload{TaskID: "t1", ClaimedBy: "c1"},
+		},
+		{
+			name:    "task_block",
+			msgType: MsgTaskBlock,
+			payload: TaskBlockPayload{TaskID: "t1", ClientID: "c1", BlockType: "tool_error"},
+		},
+		// Phase 7: Raft messages
+		{
+			name:    "raft_leader_change",
+			msgType: MsgRaftLeaderChange,
+			payload: RaftLeaderChangePayload{NewLeaderID: "n1", NewLeaderAddr: "10.0.0.1:8080", Term: 5},
 		},
 	}
 
@@ -593,4 +682,27 @@ func TestEvolutionMessageRoundTrip(t *testing.T) {
 			}
 		}
 	})
+}
+
+// BenchmarkNewEvolutionMessage benchmarks the NewMessage + marshal cycle for GeneSubmitPayload.
+func BenchmarkNewEvolutionMessage(b *testing.B) {
+	payload := GeneSubmitPayload{
+		GeneID:         "gene-001",
+		GeneData:       json.RawMessage(`{"gene_id":"g1","fitness":0.95,"dna":"AABBCCDDEEFF001122334455"}`),
+		SourceEventIDs: []string{"evt-1", "evt-2", "evt-3"},
+		ClientID:       "client-42",
+		Timestamp:      1700000000000,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		msg, err := NewMessage(MsgGeneSubmit, "task-123", payload)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = json.Marshal(msg)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
