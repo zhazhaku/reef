@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sipeed/reef/pkg/reef"
 	"github.com/sipeed/reef/pkg/reef/evolution"
 	bolt "go.etcd.io/bbolt"
-	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -1030,27 +1028,6 @@ func (p *ClientConnPool) SendToLeader(msg reef.Message) error {
 	}
 	return nil
 }
-
-// =====================================================================
-// LeaderedServer (P7-07)
-// =====================================================================
-
-type LeaderedServer struct {
-	isLeader atomic.Bool
-	nodeID   string
-	raftNode raft.Node
-	fsm      *ReefFSM
-}
-
-func (s *LeaderedServer) Propose(cmd RaftCommand) error {
-	if !s.isLeader.Load() {
-		return ErrNotLeader
-	}
-	return nil
-}
-
-func (s *LeaderedServer) onBecomeLeader() {}
-func (s *LeaderedServer) onLoseLeadership() {}
 
 // =====================================================================
 // Helpers

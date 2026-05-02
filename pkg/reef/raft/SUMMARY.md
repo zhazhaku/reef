@@ -1,43 +1,70 @@
-# P7-05: RaftNode — Summary
+# P7-07: LeaderedServer — Summary
 
-## Status: COMPLETE (all tests pass, go vet clean)
+## Changes Made
 
-## Files Modified
+### 1. `pkg/reef/raft/leadered.go` (new file)
+- **LeaderedServer** struct wrapping RaftNode, ReefFSM, and BoltStore
+- **NewLeaderedServer(cfg)** — creates LeaderedServer, wires leadership callbacks, syncs initial state
+- **Start()/Stop()** — lifecycle management with idempotent Stop
+- **Propose(ctx, cmd)** — validates leadership, serializes and proposes via RaftNode
+- **ProposeWithCallback(ctx, cmd, fn)** — proposes + registers callback
+- **ProposeAndWait(ctx, cmd)** — proposes and waits for FSM to advance
+- **SubmitRaftCommand(ctx, cmd)** — validates, serializes, proposes
+- **ForwardToLeader(addr, cmd)** — HTTP POST forwarded proposal to leader
+- **Status()** — returns ClusterStatus (leader, term, index, peers)
+- **IsLeader()** — atomic bool check
+- **4 Leader-exclusive goroutines**: runHeartbeatScanner, runTimeoutScanner, runClaimExpiryScanner, runSnapshotTicker
+- **onBecomeLeader/onLoseLeadership** — goroutine lifecycle management via leaderStopCh
+- **snapshotToFsmsnapshot** — FSM accessor for snapshot ticker
+- **TaskSnapshot/ClientSnapshot** — thread-safe FSM state accessors
 
-### pkg/reef/raft/node.go
-- **RaftConfig**: Config struct with NodeID, Peers, ElectionTimeoutMs, HeartbeatIntervalMs, MaxSizePerMsg, MaxInflightMsgs, MaxUncommittedEntriesSize, CheckQuorum, PreVote
-- **RaftNode struct**: Wraps raft.Node with lifecycle (Start/Stop), leadership tracking (IsLeader, GetLeaderID, OnLeaderStart, OnLeaderStop), proposal forwarding, member changes
-- **NewRaftNode**: Creates fresh raft node via raft.StartNode. Empty peers auto-adds self for single-node bootstrap (raft/v3.6.0 requires non-empty peers)
-- **NewRestartNode**: Restarts from BoltDB persisting state — replays committed entries to FSM, populates MemoryStorage with HardState/ConfState/Entries, then calls raft.RestartNode
-- **Start/Stop**: Tick loop (HeartbeatIntervalMs/2), Ready loop, receive loop. Stop is idempotent (sync.Once)
-- **Ready loop**: 5-stage processing: persist HardState, persist Entries, send Messages, apply CommittedEntries (normal/ConfChange/ConfChangeV2), handle Snapshot, track leadership, Advance
-- **Propose/ProposeCmd/ProposeConfChange**: Leader-proposes directly, follower forwards via Transport with MsgProp message
-- **AddNode/RemoveNode**: ConfChange proposals via raft.ProposeConfChange — only leader can call
-- **raftLoggerAdapter**: Adapts slog.Logger to raft.Logger; Fatal/Panic logged at Error level
-- Transport interface: Send, AddPeer, RemovePeer, Stop
+### 2. `pkg/reef/raft/node.go` (modified)
+- Added `OnCommit func(index uint64)` callback field to RaftNode
+- Fires after each committed entry is applied (for ProposeWithCallback)
 
-### pkg/reef/raft/node_test.go
-- **testTransport/testCluster**: In-memory channel-based transport and cluster test harness
-- 30+ tests covering:
-  - Construction + validation (nil store, nil fsm, nil transport, config edge cases)
-  - Single-node: start/stop, propose, leadership callbacks
-  - Multi-node: leader election, proposal forwarding (follower→leader), conf change (add node)
-  - Restart: persist + replay from BoltDB
-  - 3-node integration: 5 proposals, FSM consistency across all nodes
-  - Member changes: AddNode/RemoveNode with ErrNotLeader guard
-  - Edge cases: idempotent Stop, raftLoggerAdapter, ConfState persistence
+### 3. `pkg/reef/raft/types.go` (modified)
+- Removed stub `LeaderedServer` struct and methods
+- Removed unused imports (`sync/atomic`, `go.etcd.io/raft/v3`)
 
-### pkg/reef/raft/types.go
-- Fixed CmdTaskEnqueue FSM handler to support both TaskEnqueuePayload format (`{"task_id":"...","task_data":{...}}`) and direct reef.Task format (`{"id":"...","instruction":"..."}`)
+### 4. `pkg/reef/server/server.go` (modified)
+- Added `Mode` field to `Config` (defaults to "standalone")
+- Added `Raft *RaftConfig` field to `Config`
+- Added `RaftConfig` struct with validation (avoids import cycle with raft package)
+- Added `Validate()` methods for both Config and RaftConfig
 
-## Key Design Decisions
-1. Empty peers auto-adds self — raft/v3.6.0 requires non-empty peers for StartNode
-2. Follower Propose forwards via Transport (MsgProp message) rather than DisableProposalForwarding
-3. NewRestartNode replays entries to FSM THEN populates MemoryStorage for correct appliedIndex
-4. ConfState persisted to BoltDB and restored via snapshot in MemoryStorage on restart
+### 5. `pkg/reef/raft/leadered_test.go` (new file ~1425 lines)
+- 23 test functions covering:
+  - Construction and validation
+  - Leadership callbacks (become/lose leader, idempotency)
+  - Initial leadership sync
+  - Propose, ProposeNotLeader, ProposeAndWait, ProposeWithCallback
+  - SubmitRaftCommand (valid + invalid)
+  - Status, ForwardToLeader
+  - Task/Client snapshots
+  - Done channel
+  - Integration: full task lifecycle (register client → enqueue → assign → complete)
+  - Multi-domain proposals (task, client, claim, dag)
+  - Snapshot ticker triggers compaction
+  - Scanner goroutine lifecycle (start/stop)
+  - Heartbeat scanner: stale client detection
+  - Timeout scanner: timed-out task detection
+  - Claim expiry scanner: expired claim detection
+  - Empty FSM safety
+  - Stop idempotency
+
+### 6. `pkg/reef/raft/fulfilment_test.go` (modified)
+- Updated old stub tests to use new LeaderedServer API
+- Added `context`, `log/slog` imports
 
 ## Test Results
 ```
-ok  github.com/sipeed/reef/pkg/reef/raft  12.261s
-All tests PASS. go vet: zero warnings.
+go test -count=1 -short ./pkg/reef/raft/...  → PASS (24.430s)
+go test -count=1 -short ./pkg/reef/server/... → PASS (2.753s)
+go vet ./pkg/reef/...                         → clean
 ```
+
+## Design Decisions
+1. **No import cycle**: `server.Config.Raft` uses a local `RaftConfig` struct (not `raft.RaftConfig`) to avoid `server → raft` import. Higher-level factory code handles conversion.
+2. **Separate isLeader flag**: LeaderedServer maintains its own atomic bool (not relying solely on RaftNode's leaderID) for faster checks without function calls.
+3. **Callback cleanup**: Pending callbacks older than 30 seconds are garbage-collected by the snapshot ticker's cleanup goroutine.
+4. **Scanner resilience**: All 4 scanner goroutines have panic recovery to prevent server crashes.

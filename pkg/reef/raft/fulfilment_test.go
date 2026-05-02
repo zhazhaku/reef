@@ -3,8 +3,10 @@
 package raft
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -537,16 +539,62 @@ func TestClientConnPoolSingleAddr(t *testing.T) {
 	}
 }
 
-func TestLeaderedServerProposeNotLeader(t *testing.T) {
-	ls := &LeaderedServer{}
-	err := ls.Propose(RaftCommand{Type: CmdTaskEnqueue, Timestamp: 1000})
+func TestLeaderedServerProposeNotLeaderBasic(t *testing.T) {
+	// Create a leadered server that is not leader
+	db := newTestDB(t)
+	store := NewBoltStore(db)
+	store.InitBuckets()
+	fsm := NewReefFSM(db, store)
+	transport := newTestTransport(1)
+
+	cfg := DefaultRaftConfig()
+	cfg.NodeID = 1
+	cfg.Peers = []PeerInfo{{ID: 1, RaftAddr: "node-1"}, {ID: 2, RaftAddr: "node-2"}}
+
+	node, err := NewRaftNode(cfg, store, fsm, transport, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewRaftNode: %v", err)
+	}
+	node.Start()
+	defer node.Stop()
+
+	ls, err := NewLeaderedServer(node, fsm, store, "node-1", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewLeaderedServer: %v", err)
+	}
+
+	// Force not leader
+	node.leaderID.Store(0)
+
+	ctx := context.Background()
+	cmd, _ := NewRaftCommand(CmdTaskEnqueue, &TaskEnqueuePayload{TaskID: "t1"}, "node-1")
+	err = ls.Propose(ctx, cmd)
 	if err != ErrNotLeader {
 		t.Errorf("expected ErrNotLeader, got %v", err)
 	}
 }
 
 func TestLeaderedServerLifecycleIdempotent(t *testing.T) {
-	ls := &LeaderedServer{}
+	db := newTestDB(t)
+	store := NewBoltStore(db)
+	store.InitBuckets()
+	fsm := NewReefFSM(db, store)
+	transport := newTestTransport(1)
+
+	cfg := DefaultRaftConfig()
+	cfg.NodeID = 1
+	cfg.Peers = []PeerInfo{{ID: 1, RaftAddr: "node-1"}}
+
+	node, err := NewRaftNode(cfg, store, fsm, transport, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewRaftNode: %v", err)
+	}
+
+	ls, err := NewLeaderedServer(node, fsm, store, "node-1", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewLeaderedServer: %v", err)
+	}
+
 	ls.onBecomeLeader()
 	ls.onBecomeLeader()
 	ls.onLoseLeadership()
@@ -1624,12 +1672,48 @@ func TestClientConnPoolSendToLeaderWithLeader(t *testing.T) {
 	}
 }
 
-func TestLeaderedServerProposeAsLeader(t *testing.T) {
-	ls := &LeaderedServer{}
-	ls.isLeader.Store(true) // become leader
-	err := ls.Propose(RaftCommand{Type: CmdTaskEnqueue, Timestamp: 1000})
+func TestLeaderedServerProposeAsLeaderBasic(t *testing.T) {
+	db := newTestDB(t)
+	store := NewBoltStore(db)
+	store.InitBuckets()
+	fsm := NewReefFSM(db, store)
+	transport := newTestTransport(1)
+
+	cfg := DefaultRaftConfig()
+	cfg.NodeID = 1
+	cfg.Peers = []PeerInfo{{ID: 1, RaftAddr: "node-1"}}
+
+	node, err := NewRaftNode(cfg, store, fsm, transport, slog.New(slog.DiscardHandler))
 	if err != nil {
-		t.Errorf("Propose as leader should not error: %v", err)
+		t.Fatalf("NewRaftNode: %v", err)
+	}
+	node.Start()
+	defer node.Stop()
+
+	// Wait for leadership
+	for i := 0; i < 60; i++ {
+		if node.IsLeader() {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	ls, err := NewLeaderedServer(node, fsm, store, "node-1", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewLeaderedServer: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd, _ := NewRaftCommand(CmdTaskEnqueue, &TaskEnqueuePayload{
+		TaskID:   "t-propose-as-leader",
+		TaskData: json.RawMessage(`{"instruction":"test"}`),
+	}, "node-1")
+
+	err = ls.Propose(ctx, cmd)
+	if err != nil {
+		t.Errorf("Propose as leader: %v", err)
 	}
 }
 

@@ -22,6 +22,79 @@ type Config struct {
 	QueueMaxLen      int
 	QueueMaxAge      time.Duration
 	MaxEscalations   int
+
+	// Server mode: "standalone" (default) or "raft"
+	Mode string `json:"mode"`
+
+	// Raft configuration — only used when Mode == "raft"
+	Raft *RaftConfig `json:"raft,omitempty"`
+}
+
+// RaftConfig holds Raft-specific configuration for the server.
+// This mirrors pkg/reef/raft.RaftConfig but lives in the server package
+// to avoid import cycles.
+type RaftConfig struct {
+	NodeID          uint64   `json:"node_id"`
+	PeerAddrs       []string `json:"peer_addrs"` // e.g. ["127.0.0.1:9090", "127.0.0.1:9091"]
+	RaftAddr        string   `json:"raft_addr"`  // this node's Raft listen addr
+	DataDir         string   `json:"data_dir"`
+	ElectionTimeoutMs int    `json:"election_timeout_ms"`
+	HeartbeatIntervalMs int `json:"heartbeat_interval_ms"`
+	CheckQuorum     bool     `json:"check_quorum"`
+	PreVote         bool     `json:"pre_vote"`
+}
+
+// DefaultRaftConfig returns default Raft configuration.
+func DefaultRaftConfig() RaftConfig {
+	return RaftConfig{
+		ElectionTimeoutMs:  1000,
+		HeartbeatIntervalMs: 100,
+		CheckQuorum:        true,
+		PreVote:            true,
+		DataDir:            "./reef_data",
+	}
+}
+
+// Validate checks the Raft server config for common errors.
+func (c *RaftConfig) Validate() error {
+	if c.NodeID == 0 {
+		return fmt.Errorf("raft: NodeID must be non-zero")
+	}
+	if c.RaftAddr == "" {
+		return fmt.Errorf("raft: RaftAddr must be set")
+	}
+	if c.ElectionTimeoutMs <= 0 {
+		return fmt.Errorf("raft: ElectionTimeoutMs must be positive, got %d", c.ElectionTimeoutMs)
+	}
+	if c.HeartbeatIntervalMs <= 0 {
+		return fmt.Errorf("raft: HeartbeatIntervalMs must be positive, got %d", c.HeartbeatIntervalMs)
+	}
+	if c.ElectionTimeoutMs <= c.HeartbeatIntervalMs {
+		return fmt.Errorf("raft: ElectionTimeoutMs (%d) must be > HeartbeatIntervalMs (%d)",
+			c.ElectionTimeoutMs, c.HeartbeatIntervalMs)
+	}
+	return nil
+}
+
+// Validate checks the server Config for correctness.
+func (c *Config) Validate() error {
+	if c.Mode == "" {
+		c.Mode = "standalone" // Default
+	}
+	switch c.Mode {
+	case "standalone":
+		// No additional validation needed
+	case "raft":
+		if c.Raft == nil {
+			return fmt.Errorf("raft config required when mode=raft")
+		}
+		if err := c.Raft.Validate(); err != nil {
+			return fmt.Errorf("raft config invalid: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown server mode: %s", c.Mode)
+	}
+	return nil
 }
 
 // DefaultConfig returns a configuration with sensible defaults.

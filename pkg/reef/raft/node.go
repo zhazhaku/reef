@@ -208,6 +208,11 @@ type RaftNode struct {
 	onLeaderStart func() // callback when this node becomes Leader
 	onLeaderStop  func() // callback when this node loses leadership
 
+	// OnCommit is called after each committed entry is applied.
+	// The callback receives the index of the applied entry.
+	// Used by LeaderedServer to invoke ProposeWithCallback callbacks.
+	OnCommit func(index uint64)
+
 	// Stop
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -510,6 +515,10 @@ func (rn *RaftNode) readyLoop() {
 						}
 					}
 					// Empty entries: commit marker; still counted in applied index
+				}
+				// Fire OnCommit callback after each applied entry
+				if rn.OnCommit != nil {
+					rn.OnCommit(entry.Index)
 				}
 			}
 
