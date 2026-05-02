@@ -505,36 +505,48 @@ func TestReefFSMConfChangeNoop(t *testing.T) {
 }
 
 func TestClientConnPoolNew(t *testing.T) {
-	pool := NewClientConnPool(PoolConfig{ServerAddrs: []string{"ws://n1:8080", "ws://n2:8081", "ws://n3:8082"}})
-	if pool == nil || len(pool.Servers) != 3 || pool.LeaderIdx != -1 {
+	pool, err := NewClientConnPool(PoolConfig{ReconnectBackoff: 2*time.Second, MaxReconnect: 30*time.Second, PingInterval: 10*time.Second, ServerAddrs: []string{"ws://n1:8080", "ws://n2:8081", "ws://n3:8082"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pool == nil || pool.ServerCount() != 3 || pool.LeaderIndex() != -1 {
 		t.Error("pool init wrong")
 	}
 }
 
 func TestClientConnPoolLeaderDetection(t *testing.T) {
-	pool := NewClientConnPool(PoolConfig{ServerAddrs: []string{"ws://n1:8080", "ws://n2:8081"}})
-	pool.OnLeaderChange("ws://n1:8080")
-	if pool.LeaderIdx != 0 {
+	pool, err := NewClientConnPool(PoolConfig{ReconnectBackoff: 2*time.Second, MaxReconnect: 30*time.Second, PingInterval: 10*time.Second, ServerAddrs: []string{"ws://n1:8080", "ws://n2:8081"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.OnLeaderChange(reef.RaftLeaderChangePayload{NewLeaderAddr: "ws://n1:8080", NewLeaderID: "n1"})
+	if pool.LeaderIndex() != 0 {
 		t.Error("leader idx 0")
 	}
-	pool.OnLeaderChange("ws://n2:8081")
-	if pool.LeaderIdx != 1 {
+	pool.OnLeaderChange(reef.RaftLeaderChangePayload{NewLeaderAddr: "ws://n2:8081", OldLeaderAddr: "ws://n1:8080", NewLeaderID: "n2"})
+	if pool.LeaderIndex() != 1 {
 		t.Error("leader idx 1")
 	}
 }
 
 func TestClientConnPoolSendToLeaderNoLeader(t *testing.T) {
-	pool := NewClientConnPool(PoolConfig{ServerAddrs: []string{"ws://n1:8080"}})
-	msg, _ := reef.NewMessage(reef.MsgTaskCompleted, "", nil)
-	err := pool.SendToLeader(msg)
+	pool, err := NewClientConnPool(PoolConfig{ReconnectBackoff: 100*time.Millisecond, MaxReconnect: 500*time.Millisecond, PingInterval: 10*time.Second, ServerAddrs: []string{"ws://n1:8080"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without calling Start(), there is no connection; SendToLeader should return error
+	err = pool.SendToLeader([]byte(`{"msg_type":"test"}`))
 	if err == nil {
 		t.Error("expected error with no leader")
 	}
 }
 
 func TestClientConnPoolSingleAddr(t *testing.T) {
-	pool := NewClientConnPool(PoolConfig{ServerAddrs: []string{"ws://localhost:8080"}})
-	if len(pool.Servers) != 1 || pool.Servers[0].Addr != "ws://localhost:8080" {
+	pool, err := NewClientConnPool(PoolConfig{ReconnectBackoff: 2*time.Second, MaxReconnect: 30*time.Second, PingInterval: 10*time.Second, ServerAddrs: []string{"ws://localhost:8080"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pool.ServerCount() != 1 {
 		t.Error("single addr wrong")
 	}
 }
@@ -1662,13 +1674,16 @@ func TestRaftCommandTypeStringDefault(t *testing.T) {
 }
 
 func TestClientConnPoolSendToLeaderWithLeader(t *testing.T) {
-	pool := NewClientConnPool(PoolConfig{ServerAddrs: []string{"ws://n1:8080"}})
-	pool.OnLeaderChange("ws://n1:8080")
-	msg, _ := reef.NewMessage(reef.MsgTaskCompleted, "", nil)
-	// SendToLeader always returns nil currently (no actual transport)
-	err := pool.SendToLeader(msg)
+	pool, err := NewClientConnPool(PoolConfig{ReconnectBackoff: 2*time.Second, MaxReconnect: 30*time.Second, PingInterval: 10*time.Second, ServerAddrs: []string{"ws://n1:8080"}}, nil)
 	if err != nil {
-		t.Errorf("SendToLeader with leader: %v", err)
+		t.Fatal(err)
+	}
+	pool.OnLeaderChange(reef.RaftLeaderChangePayload{NewLeaderAddr: "ws://n1:8080", NewLeaderID: "n1"})
+	// SendToLeader without Start() and leader set but no actual connection — returns error
+	err = pool.SendToLeader([]byte(`{"msg_type":"test"}`))
+	// We expect an error because there's no actual WebSocket connection
+	if err == nil {
+		t.Error("expected error: no actual connection to send to")
 	}
 }
 

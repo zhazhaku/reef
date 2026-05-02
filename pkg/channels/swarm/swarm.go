@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/sipeed/reef/pkg/bus"
 	"github.com/sipeed/reef/pkg/reef"
 	"github.com/sipeed/reef/pkg/reef/client"
+	"github.com/sipeed/reef/pkg/reef/raft"
 )
 
 // SwarmChannel bridges PicoClaw's MessageBus with Reef's WebSocket protocol.
@@ -40,6 +42,36 @@ func New(opts Options) *SwarmChannel {
 		outCh:     make(chan bus.Message, 16),
 		logger:    opts.Logger,
 	}
+}
+
+// NewConnectorFromAddr creates a Connector suitable for SwarmChannel from a
+// server address string. Supports both single addresses and comma-separated
+// multi-server addresses for federation mode.
+//
+// Single:  "ws://host1:8080/ws"
+// Multi:   "ws://host1:8080/ws,ws://host2:8080/ws,ws://host3:8080/ws"
+func NewConnectorFromAddr(serverAddr string, opts client.ConnectorOptions) (*client.Connector, error) {
+	addrs := strings.Split(serverAddr, ",")
+	if len(addrs) == 1 {
+		opts.ServerURL = strings.TrimSpace(addrs[0])
+		return client.NewConnector(opts), nil
+	}
+
+	// Multi-server: trim whitespace, filter empty
+	clean := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		a = strings.TrimSpace(a)
+		if a != "" {
+			clean = append(clean, a)
+		}
+	}
+	if len(clean) == 0 {
+		return nil, fmt.Errorf("no valid server addresses in %q", serverAddr)
+	}
+
+	poolCfg := raft.DefaultPoolConfig()
+	poolCfg.ServerAddrs = clean
+	return client.NewPoolConnector(opts, poolCfg)
 }
 
 // Start connects to the Reef Server and begins relaying messages.

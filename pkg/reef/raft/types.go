@@ -973,63 +973,6 @@ func (fsm *ReefFSM) LoadState() error {
 }
 
 // =====================================================================
-// ClientConnPool (P7-08)
-// =====================================================================
-
-type PoolConfig struct {
-	ServerAddrs      []string      `json:"server_addrs"`
-	ReconnectBackoff time.Duration `json:"reconnect_backoff"`
-	MaxReconnect     time.Duration `json:"max_reconnect"`
-	PingInterval     time.Duration `json:"ping_interval"`
-}
-
-type serverConn struct {
-	Addr     string
-	IsLeader bool
-}
-
-type ClientConnPool struct {
-	Servers   []*serverConn
-	LeaderIdx int
-	mu        sync.RWMutex
-	config    PoolConfig
-}
-
-func NewClientConnPool(cfg PoolConfig) *ClientConnPool {
-	servers := make([]*serverConn, len(cfg.ServerAddrs))
-	for i, addr := range cfg.ServerAddrs {
-		servers[i] = &serverConn{Addr: addr}
-	}
-	return &ClientConnPool{
-		Servers:   servers,
-		LeaderIdx: -1,
-		config:    cfg,
-	}
-}
-
-func (p *ClientConnPool) OnLeaderChange(leaderAddr string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for i, s := range p.Servers {
-		if s.Addr == leaderAddr {
-			s.IsLeader = true
-			p.LeaderIdx = i
-		} else {
-			s.IsLeader = false
-		}
-	}
-}
-
-func (p *ClientConnPool) SendToLeader(msg reef.Message) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.LeaderIdx < 0 {
-		return fmt.Errorf("no leader")
-	}
-	return nil
-}
-
-// =====================================================================
 // Helpers
 // =====================================================================
 

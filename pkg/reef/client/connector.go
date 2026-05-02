@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sipeed/reef/pkg/reef"
+	"github.com/sipeed/reef/pkg/reef/raft"
 )
 
 // Connector manages the WebSocket connection to a Reef Server.
@@ -36,6 +37,10 @@ type Connector struct {
 	// Phase 6 — Claim Board callbacks
 	onTaskAvailable func(reef.TaskAvailablePayload)
 	onTaskClaimed   func(reef.TaskClaimedPayload)
+
+	// Phase 7 — Federation: multi-server pool
+	pool       *raft.ClientConnPool // nil in single-address mode
+	poolActive bool
 }
 
 // ConnectorOptions configures a new Connector.
@@ -51,7 +56,7 @@ type ConnectorOptions struct {
 	Logger            *slog.Logger
 }
 
-// NewConnector creates a new WebSocket connector.
+// NewConnector creates a new WebSocket connector (single-server mode).
 func NewConnector(opts ConnectorOptions) *Connector {
 	if opts.Capacity <= 0 {
 		opts.Capacity = 1
@@ -78,8 +83,50 @@ func NewConnector(opts ConnectorOptions) *Connector {
 	}
 }
 
+// NewPoolConnector creates a Connector backed by a multi-server ClientConnPool.
+// The pool manages connections to all configured servers, auto-detects the
+// leader via raft_leader_change messages, and routes Send() to the leader.
+// Pass the same ConnectorOptions as NewConnector; the ServerURL field is ignored
+// in favor of the pool config.
+func NewPoolConnector(opts ConnectorOptions, poolCfg raft.PoolConfig) (*Connector, error) {
+	if opts.Capacity <= 0 {
+		opts.Capacity = 1
+	}
+	if opts.HeartbeatInterval <= 0 {
+		opts.HeartbeatInterval = 10 * time.Second
+	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+
+	pool, err := raft.NewClientConnPool(poolCfg, opts.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+
+	return &Connector{
+		token:             opts.Token,
+		clientID:          opts.ClientID,
+		role:              opts.Role,
+		skills:            opts.Skills,
+		providers:         opts.Providers,
+		capacity:          opts.Capacity,
+		sendCh:            make(chan reef.Message, 64),
+		msgInCh:           make(chan reef.Message, 16),
+		backoff:           NewBackoff(1*time.Second, 60*time.Second),
+		heartbeatInterval: opts.HeartbeatInterval,
+		logger:            opts.Logger,
+		pool:              pool,
+	}, nil
+}
+
 // Connect establishes the WebSocket connection and starts background loops.
+// In pool mode, starts all pool connections and a pool-receive relay goroutine.
+// In single-address mode, dials and registers with the server.
 func (c *Connector) Connect(ctx context.Context) error {
+	if c.pool != nil {
+		return c.connectPool(ctx)
+	}
 	if err := c.dialAndRegister(ctx); err != nil {
 		return err
 	}
@@ -90,10 +137,73 @@ func (c *Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
+func (c *Connector) connectPool(ctx context.Context) error {
+	c.pool.Start()
+	c.poolActive = true
+
+	// Relay goroutine: pool.Receive() → msgInCh
+	go c.poolRelayLoop(ctx)
+
+	return nil
+}
+
+// poolRelayLoop forwards messages from the pool's Receive channel into msgInCh.
+func (c *Connector) poolRelayLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case rm, ok := <-c.pool.Receive():
+			if !ok {
+				return
+			}
+			var msg reef.Message
+			if err := json.Unmarshal(rm.Data, &msg); err != nil {
+				c.logger.Warn("pool unmarshal", "addr", rm.Addr, "error", err)
+				continue
+			}
+			if !msg.MsgType.IsValid() {
+				continue
+			}
+
+			// Handle claim board callbacks
+			switch msg.MsgType {
+			case reef.MsgTaskAvailable:
+				var payload reef.TaskAvailablePayload
+				if err := msg.DecodePayload(&payload); err == nil {
+					c.mu.Lock()
+					cb := c.onTaskAvailable
+					c.mu.Unlock()
+					if cb != nil {
+						go cb(payload)
+					}
+				}
+			case reef.MsgTaskClaimed:
+				var payload reef.TaskClaimedPayload
+				if err := msg.DecodePayload(&payload); err == nil {
+					c.mu.Lock()
+					cb := c.onTaskClaimed
+					c.mu.Unlock()
+					if cb != nil {
+						go cb(payload)
+					}
+				}
+			}
+
+			select {
+			case c.msgInCh <- msg:
+			default:
+				c.logger.Warn("incoming message dropped, buffer full")
+			}
+		}
+	}
+}
+
 // Messages returns the channel of incoming server messages.
 func (c *Connector) Messages() <-chan reef.Message { return c.msgInCh }
 
 // Send queues a message for transmission to the server.
+// In pool mode, sends to the current leader.
 func (c *Connector) Send(msg reef.Message) error {
 	c.mu.Lock()
 	if c.closed {
@@ -101,6 +211,15 @@ func (c *Connector) Send(msg reef.Message) error {
 		return fmt.Errorf("connector closed")
 	}
 	c.mu.Unlock()
+
+	if c.poolActive {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return fmt.Errorf("marshal: %w", err)
+		}
+		return c.pool.SendToLeader(data)
+	}
+
 	select {
 	case c.sendCh <- msg:
 		return nil
@@ -114,13 +233,55 @@ func (c *Connector) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	conn := c.conn
+	poolActive := c.poolActive
 	c.mu.Unlock()
+
+	if poolActive {
+		c.pool.Stop()
+		c.poolActive = false
+	}
 	if conn != nil {
 		conn.Close()
 	}
 	close(c.sendCh)
 	close(c.msgInCh)
 	return nil
+}
+
+// SendToAll broadcasts a message to all connected servers.
+// In single-server mode, falls back to Send.
+func (c *Connector) SendToAll(msg reef.Message) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return fmt.Errorf("connector closed")
+	}
+	c.mu.Unlock()
+
+	if c.poolActive {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return fmt.Errorf("marshal: %w", err)
+		}
+		c.pool.SendToAll(data)
+		return nil
+	}
+	return c.Send(msg) // fallback: send to single server
+}
+
+// LeaderAddr returns the current leader's address.
+// In pool mode, returns the detected leader address; in single-server mode,
+// returns the configured server URL.
+func (c *Connector) LeaderAddr() string {
+	if c.poolActive {
+		return c.pool.LeaderAddr()
+	}
+	return c.serverURL
+}
+
+// Pool returns the underlying ClientConnPool, or nil if not in pool mode.
+func (c *Connector) Pool() *raft.ClientConnPool {
+	return c.pool
 }
 
 // SetOnTaskAvailable sets the callback invoked when a task_available message is received.
