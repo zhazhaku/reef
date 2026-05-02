@@ -22,6 +22,7 @@ import (
 type testTransport struct {
 	mu      sync.Mutex
 	nodeID  uint64
+	addr    string
 	msgCh   chan raftpb.Message // incoming messages
 	sendFn  func([]raftpb.Message)
 	peers   map[uint64]string // nodeID -> addr
@@ -31,6 +32,7 @@ type testTransport struct {
 func newTestTransport(nodeID uint64) *testTransport {
 	return &testTransport{
 		nodeID: nodeID,
+		addr:   fmt.Sprintf("node-%d:0", nodeID),
 		msgCh:  make(chan raftpb.Message, 256),
 		peers:  make(map[uint64]string),
 	}
@@ -54,6 +56,18 @@ func (t *testTransport) RemovePeer(id uint64) {
 	delete(t.peers, id)
 }
 
+func (t *testTransport) Addr() string {
+	return t.addr
+}
+
+func (t *testTransport) Incoming() <-chan raftpb.Message {
+	return t.msgCh
+}
+
+func (t *testTransport) Start() error {
+	return nil
+}
+
 func (t *testTransport) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -61,10 +75,6 @@ func (t *testTransport) Stop() {
 		t.stopped = true
 		close(t.msgCh)
 	}
-}
-
-func (t *testTransport) Receive() <-chan raftpb.Message {
-	return t.msgCh
 }
 
 // testCluster manages a set of RaftNodes connected via testTransport.

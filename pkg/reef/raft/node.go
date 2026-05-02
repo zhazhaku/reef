@@ -27,6 +27,12 @@ type Transport interface {
 	AddPeer(id uint64, addr string)
 	// RemovePeer unregisters a peer.
 	RemovePeer(id uint64)
+	// Addr returns this transport's listen address.
+	Addr() string
+	// Incoming returns the channel of received messages from peers.
+	Incoming() <-chan raftpb.Message
+	// Start begins listening for incoming messages.
+	Start() error
 	// Stop shuts down the transport.
 	Stop()
 }
@@ -523,11 +529,24 @@ func (rn *RaftNode) readyLoop() {
 
 func (rn *RaftNode) receiveLoop() {
 	defer rn.wg.Done()
-	// The receiveLoop waits for incoming messages from the transport.
-	// In the current channel-based transport stub, the transport calls
-	// rn.Step() directly. This loop is a placeholder until P7-06
-	// implements a real transport with a Receive() channel.
-	<-rn.stopCh
+	for {
+		select {
+		case <-rn.stopCh:
+			return
+		case msg, ok := <-rn.transport.Incoming():
+			if !ok {
+				rn.logger.Info("transport incoming channel closed")
+				return
+			}
+			if err := rn.node.Step(rn.ctx, msg); err != nil {
+				rn.logger.Warn("step failed for incoming message",
+					"from", msg.From,
+					"type", msg.Type,
+					"error", err,
+				)
+			}
+		}
+	}
 }
 
 // =====================================================================
