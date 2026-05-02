@@ -429,28 +429,38 @@ type Fsmsnapshot struct {
 	Clients  map[string]*reef.ClientInfo      `json:"clients"`
 	Genes    map[string]*evolution.Gene       `json:"genes"`
 	Drafts   map[string]*evolution.SkillDraft `json:"drafts"`
+	DagNodes map[string]*reef.DAGNode         `json:"dag_nodes"`
 }
 
 type ReefFSM struct {
-	db       *bolt.DB
-	mu       sync.RWMutex
+	db    *bolt.DB
+	store *BoltStore
+	mu    sync.RWMutex
 
-	Tasks   map[string]*reef.Task
-	Clients map[string]*reef.ClientInfo
-	Genes   map[string]*evolution.Gene
-	Drafts  map[string]*evolution.SkillDraft
+	Tasks    map[string]*reef.Task
+	Clients  map[string]*reef.ClientInfo
+	Genes    map[string]*evolution.Gene
+	Drafts   map[string]*evolution.SkillDraft
+	DagNodes map[string]*reef.DAGNode
 
 	appliedIndex  uint64
 	snapshotIndex uint64
+	compactThresh uint64 // compaction threshold: compact when appliedIndex - snapshotIndex > compactThresh
 }
 
-func NewReefFSM(db *bolt.DB) *ReefFSM {
+// NewReefFSM creates a new ReefFSM. If db or store is nil, the FSM operates
+// purely in-memory (useful for testing). When both are provided, SaveState/LoadState
+// will persist snapshots via the BoltStore.
+func NewReefFSM(db *bolt.DB, store *BoltStore) *ReefFSM {
 	return &ReefFSM{
-		db:       db,
-		Tasks:    make(map[string]*reef.Task),
-		Clients:  make(map[string]*reef.ClientInfo),
-		Genes:    make(map[string]*evolution.Gene),
-		Drafts:   make(map[string]*evolution.SkillDraft),
+		db:            db,
+		store:         store,
+		Tasks:         make(map[string]*reef.Task),
+		Clients:       make(map[string]*reef.ClientInfo),
+		Genes:         make(map[string]*evolution.Gene),
+		Drafts:        make(map[string]*evolution.SkillDraft),
+		DagNodes:      make(map[string]*reef.DAGNode),
+		compactThresh: 10000, // default: compact every 10K entries
 	}
 }
 
@@ -471,6 +481,7 @@ func (fsm *ReefFSM) Apply(entry *raftpb.Entry) error {
 	ts := time.UnixMilli(cmd.Timestamp)
 
 	switch cmd.Type {
+	// ===== Task operations (1-8) =====
 	case CmdTaskEnqueue:
 		var task reef.Task
 		if err := json.Unmarshal(cmd.Payload, &task); err != nil {
@@ -483,12 +494,31 @@ func (fsm *ReefFSM) Apply(entry *raftpb.Entry) error {
 			TaskID   string `json:"task_id"`
 			ClientID string `json:"client_id"`
 		}
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.AssignedClient = payload.ClientID
-			task.Status = reef.TaskRunning
-			task.StartedAt = &ts
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
 		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.AssignedClient = payload.ClientID
+		task.Status = reef.TaskRunning
+		task.StartedAt = &ts
+
+	case CmdTaskStart:
+		var payload struct {
+			TaskID   string `json:"task_id"`
+			ClientID string `json:"client_id"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.Status = reef.TaskRunning
+		task.StartedAt = &ts
 
 	case CmdTaskComplete:
 		var payload struct {
@@ -496,12 +526,16 @@ func (fsm *ReefFSM) Apply(entry *raftpb.Entry) error {
 			Result          *reef.TaskResult `json:"result"`
 			ExecutionTimeMs int64            `json:"execution_time_ms"`
 		}
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.Status = reef.TaskCompleted
-			task.Result = payload.Result
-			task.CompletedAt = &ts
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
 		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.Status = reef.TaskCompleted
+		task.Result = payload.Result
+		task.CompletedAt = &ts
 
 	case CmdTaskFailed:
 		var payload struct {
@@ -509,71 +543,240 @@ func (fsm *ReefFSM) Apply(entry *raftpb.Entry) error {
 			Error          *reef.TaskError     `json:"error"`
 			AttemptHistory []reef.AttemptRecord `json:"attempt_history"`
 		}
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.Status = reef.TaskFailed
-			task.Error = payload.Error
-			task.AttemptHistory = append(task.AttemptHistory, payload.AttemptHistory...)
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
 		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.Status = reef.TaskFailed
+		task.Error = payload.Error
+		task.AttemptHistory = append(task.AttemptHistory, payload.AttemptHistory...)
 
 	case CmdTaskCancel:
 		var payload struct {
 			TaskID string `json:"task_id"`
 		}
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.Status = reef.TaskCancelled
-			task.CompletedAt = &ts
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.Status = reef.TaskCancelled
+		task.CompletedAt = &ts
+
+	case CmdTaskEscalate:
+		var payload struct {
+			TaskID          string `json:"task_id"`
+			EscalationLevel int    `json:"escalation_level"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.EscalationCount++
+		task.Status = reef.TaskFailed
+
+	case CmdTaskTimedOut:
+		var payload struct {
+			TaskID    string `json:"task_id"`
+			TimeoutAt int64  `json:"timeout_at"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.Status = reef.TaskFailed
+		task.Error = &reef.TaskError{
+			Type:    "TIMEOUT",
+			Message: "task timed out",
 		}
 
+	// ===== Client operations (20-22) =====
 	case CmdClientRegister:
 		var info reef.ClientInfo
-		json.Unmarshal(cmd.Payload, &info)
+		if err := json.Unmarshal(cmd.Payload, &info); err != nil {
+			return err
+		}
 		fsm.Clients[info.ID] = &info
 
 	case CmdClientUnregister:
 		var payload struct{ ClientID string `json:"client_id"` }
-		json.Unmarshal(cmd.Payload, &payload)
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
 		delete(fsm.Clients, payload.ClientID)
 
 	case CmdClientStale:
 		var payload struct{ ClientID string `json:"client_id"` }
-		json.Unmarshal(cmd.Payload, &payload)
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
 		if c, ok := fsm.Clients[payload.ClientID]; ok {
 			c.State = reef.ClientStale
 		}
 
-	case CmdGeneApprove:
+	// ===== Evolution operations (30-35) =====
+	case CmdGeneSubmit:
 		var gene evolution.Gene
-		json.Unmarshal(cmd.Payload, &gene)
-		gene.Status = evolution.GeneStatusApproved
-		gene.ApprovedAt = timePtr(time.UnixMilli(cmd.Timestamp))
+		if err := json.Unmarshal(cmd.Payload, &gene); err != nil {
+			return err
+		}
 		fsm.Genes[gene.ID] = &gene
 
+	case CmdGeneApprove:
+		var payload struct {
+			GeneID       string `json:"gene_id"`
+			ApproverNode string `json:"approver_node"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		gene, ok := fsm.Genes[payload.GeneID]
+		if !ok {
+			return fmt.Errorf("gene %s not found", payload.GeneID)
+		}
+		gene.Status = evolution.GeneStatusApproved
+		gene.ApprovedAt = timePtr(time.UnixMilli(cmd.Timestamp))
+
 	case CmdGeneReject:
-		var gene evolution.Gene
-		json.Unmarshal(cmd.Payload, &gene)
+		var payload struct {
+			GeneID       string `json:"gene_id"`
+			Reason       string `json:"reason"`
+			RejecterNode string `json:"rejecter_node"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		gene, ok := fsm.Genes[payload.GeneID]
+		if !ok {
+			return fmt.Errorf("gene %s not found", payload.GeneID)
+		}
 		gene.Status = evolution.GeneStatusRejected
-		fsm.Genes[gene.ID] = &gene
+
+	case CmdSkillDraft:
+		var draft evolution.SkillDraft
+		if err := json.Unmarshal(cmd.Payload, &draft); err != nil {
+			return err
+		}
+		fsm.Drafts[draft.ID] = &draft
+
+	case CmdSkillApprove:
+		var payload struct {
+			DraftID  string `json:"draft_id"`
+			Approver string `json:"approver"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		draft, ok := fsm.Drafts[payload.DraftID]
+		if !ok {
+			return fmt.Errorf("draft %s not found", payload.DraftID)
+		}
+		draft.Status = evolution.SkillDraftApproved
+		now := time.UnixMilli(cmd.Timestamp)
+		draft.ReviewedAt = &now
+
+	case CmdSkillReject:
+		var payload struct {
+			DraftID  string `json:"draft_id"`
+			Reason   string `json:"reason"`
+			Rejecter string `json:"rejecter"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		draft, ok := fsm.Drafts[payload.DraftID]
+		if !ok {
+			return fmt.Errorf("draft %s not found", payload.DraftID)
+		}
+		draft.Status = evolution.SkillDraftRejected
+		now := time.UnixMilli(cmd.Timestamp)
+		draft.ReviewedAt = &now
+
+	// ===== Claim operations (40-42) =====
+	case CmdClaimPost:
+		var payload struct {
+			TaskID   string          `json:"task_id"`
+			TaskData json.RawMessage `json:"task_data"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		if _, exists := fsm.Tasks[payload.TaskID]; !exists {
+			var task reef.Task
+			if err := json.Unmarshal(payload.TaskData, &task); err != nil {
+				return err
+			}
+			task.ID = payload.TaskID
+			fsm.Tasks[task.ID] = &task
+		}
 
 	case CmdClaimAssign:
 		var payload struct {
 			TaskID   string `json:"task_id"`
 			ClientID string `json:"client_id"`
 		}
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.AssignedClient = payload.ClientID
-			task.Status = reef.TaskRunning
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
 		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		task.AssignedClient = payload.ClientID
+		task.Status = reef.TaskRunning
 
-	case CmdTaskStart:
-		var payload struct{ TaskID string `json:"task_id"` }
-		json.Unmarshal(cmd.Payload, &payload)
-		if task, ok := fsm.Tasks[payload.TaskID]; ok {
-			task.Status = reef.TaskRunning
-			task.StartedAt = &ts
+	case CmdClaimExpire:
+		var payload struct {
+			TaskID     string `json:"task_id"`
+			RetryCount int    `json:"retry_count"`
 		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		task, ok := fsm.Tasks[payload.TaskID]
+		if !ok {
+			return fmt.Errorf("task %s not found", payload.TaskID)
+		}
+		// Re-queue: unassign and set status back to queued
+		task.AssignedClient = ""
+		task.Status = reef.TaskQueued
+
+	// ===== DAG operation (50) =====
+	case CmdDagUpdate:
+		var payload struct {
+			NodeID    string          `json:"node_id"`
+			Status    string          `json:"status"`
+			Output    json.RawMessage `json:"output"`
+			UpdatedAt int64           `json:"updated_at"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return err
+		}
+		node, exists := fsm.DagNodes[payload.NodeID]
+		if !exists {
+			node = &reef.DAGNode{
+				ID:        payload.NodeID,
+				CreatedAt: ts,
+			}
+			fsm.DagNodes[payload.NodeID] = node
+		}
+		node.Status = payload.Status
+		node.Output = string(payload.Output)
+		node.UpdatedAt = ts
+
+	default:
+		// Unknown command type — silently ignored for forward compatibility
 	}
 	return nil
 }
@@ -583,10 +786,11 @@ func (fsm *ReefFSM) Snapshot() ([]byte, error) {
 	defer fsm.mu.RUnlock()
 
 	snap := Fsmsnapshot{
-		Tasks:   fsm.Tasks,
-		Clients: fsm.Clients,
-		Genes:   fsm.Genes,
-		Drafts:  fsm.Drafts,
+		Tasks:    fsm.Tasks,
+		Clients:  fsm.Clients,
+		Genes:    fsm.Genes,
+		Drafts:   fsm.Drafts,
+		DagNodes: fsm.DagNodes,
 	}
 	data, err := json.Marshal(&snap)
 	fsm.snapshotIndex = fsm.appliedIndex
@@ -598,13 +802,38 @@ func (fsm *ReefFSM) Restore(snapshot []byte) error {
 	defer fsm.mu.Unlock()
 
 	var snap Fsmsnapshot
+	if len(snapshot) == 0 {
+		// Empty snapshot: initialize all maps as empty
+		fsm.Tasks = make(map[string]*reef.Task)
+		fsm.Clients = make(map[string]*reef.ClientInfo)
+		fsm.Genes = make(map[string]*evolution.Gene)
+		fsm.Drafts = make(map[string]*evolution.SkillDraft)
+		fsm.DagNodes = make(map[string]*reef.DAGNode)
+		return nil
+	}
 	if err := json.Unmarshal(snapshot, &snap); err != nil {
 		return err
 	}
 	fsm.Tasks = snap.Tasks
+	if fsm.Tasks == nil {
+		fsm.Tasks = make(map[string]*reef.Task)
+	}
 	fsm.Clients = snap.Clients
+	if fsm.Clients == nil {
+		fsm.Clients = make(map[string]*reef.ClientInfo)
+	}
 	fsm.Genes = snap.Genes
+	if fsm.Genes == nil {
+		fsm.Genes = make(map[string]*evolution.Gene)
+	}
 	fsm.Drafts = snap.Drafts
+	if fsm.Drafts == nil {
+		fsm.Drafts = make(map[string]*evolution.SkillDraft)
+	}
+	fsm.DagNodes = snap.DagNodes
+	if fsm.DagNodes == nil {
+		fsm.DagNodes = make(map[string]*reef.DAGNode)
+	}
 	return nil
 }
 
@@ -614,9 +843,91 @@ func (fsm *ReefFSM) Equal(other *ReefFSM) bool {
 	other.mu.RLock()
 	defer other.mu.RUnlock()
 
-	a, _ := json.Marshal(Fsmsnapshot{Tasks: fsm.Tasks, Clients: fsm.Clients, Genes: fsm.Genes, Drafts: fsm.Drafts})
-	b, _ := json.Marshal(Fsmsnapshot{Tasks: other.Tasks, Clients: other.Clients, Genes: other.Genes, Drafts: other.Drafts})
+	a, _ := json.Marshal(Fsmsnapshot{Tasks: fsm.Tasks, Clients: fsm.Clients, Genes: fsm.Genes, Drafts: fsm.Drafts, DagNodes: fsm.DagNodes})
+	b, _ := json.Marshal(Fsmsnapshot{Tasks: other.Tasks, Clients: other.Clients, Genes: other.Genes, Drafts: other.Drafts, DagNodes: other.DagNodes})
 	return string(a) == string(b)
+}
+
+// LastApplied returns the index of the last applied log entry.
+func (fsm *ReefFSM) LastApplied() uint64 {
+	fsm.mu.RLock()
+	defer fsm.mu.RUnlock()
+	return fsm.appliedIndex
+}
+
+// SnapshotIndex returns the index at which the last snapshot was taken.
+func (fsm *ReefFSM) SnapshotIndex() uint64 {
+	fsm.mu.RLock()
+	defer fsm.mu.RUnlock()
+	return fsm.snapshotIndex
+}
+
+// ShouldCompact returns true when the FSM should trigger log compaction.
+// Compaction is recommended when appliedIndex - snapshotIndex exceeds the threshold.
+func (fsm *ReefFSM) ShouldCompact() bool {
+	fsm.mu.RLock()
+	defer fsm.mu.RUnlock()
+	if fsm.compactThresh == 0 {
+		return false
+	}
+	return fsm.appliedIndex-fsm.snapshotIndex > fsm.compactThresh
+}
+
+// SetCompactThreshold sets the compaction threshold. A value of 0 disables compaction.
+func (fsm *ReefFSM) SetCompactThreshold(n uint64) {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+	fsm.compactThresh = n
+}
+
+// SaveState persists the current FSM state as a snapshot to the BoltStore.
+// Returns nil if store is nil (purely in-memory mode).
+func (fsm *ReefFSM) SaveState() error {
+	if fsm.store == nil {
+		return nil
+	}
+	return fsm.store.SaveSnapshot(Fsmsnapshot{
+		Tasks:    fsm.Tasks,
+		Clients:  fsm.Clients,
+		Genes:    fsm.Genes,
+		Drafts:   fsm.Drafts,
+		DagNodes: fsm.DagNodes,
+	})
+}
+
+// LoadState restores the FSM state from the BoltStore snapshot.
+// Returns nil if store is nil (purely in-memory mode).
+func (fsm *ReefFSM) LoadState() error {
+	if fsm.store == nil {
+		return nil
+	}
+	snap, err := fsm.store.LoadSnapshot()
+	if err != nil {
+		return err
+	}
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+	fsm.Tasks = snap.Tasks
+	if fsm.Tasks == nil {
+		fsm.Tasks = make(map[string]*reef.Task)
+	}
+	fsm.Clients = snap.Clients
+	if fsm.Clients == nil {
+		fsm.Clients = make(map[string]*reef.ClientInfo)
+	}
+	fsm.Genes = snap.Genes
+	if fsm.Genes == nil {
+		fsm.Genes = make(map[string]*evolution.Gene)
+	}
+	fsm.Drafts = snap.Drafts
+	if fsm.Drafts == nil {
+		fsm.Drafts = make(map[string]*evolution.SkillDraft)
+	}
+	fsm.DagNodes = snap.DagNodes
+	if fsm.DagNodes == nil {
+		fsm.DagNodes = make(map[string]*reef.DAGNode)
+	}
+	return nil
 }
 
 // =====================================================================
