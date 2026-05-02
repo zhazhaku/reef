@@ -120,6 +120,22 @@ func runSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_summary_messages_message ON summary_messages(message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_context_items_conv ON context_items(conversation_id, ordinal)`,
 
+		// --- Reef cognitive architecture tables ---
+
+		`CREATE TABLE IF NOT EXISTS task_episodes (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id    TEXT NOT NULL,
+			timestamp  INTEGER NOT NULL,
+			event_type TEXT NOT NULL,
+			summary    TEXT NOT NULL,
+			tags       TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_task_episodes_task ON task_episodes(task_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_episodes_type ON task_episodes(event_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_episodes_ts ON task_episodes(timestamp)`,
+
 		// Drop old triggers before creating new ones so existing DBs get updated bodies.
 		// (CREATE TRIGGER IF NOT EXISTS does NOT replace an existing trigger body.)
 		`DROP TRIGGER IF EXISTS summaries_ai`,
