@@ -588,6 +588,9 @@ func (rn *RaftNode) Propose(ctx context.Context, data []byte) error {
 
 // ProposeCmd serializes a RaftCommand and submits it for consensus.
 func (rn *RaftNode) ProposeCmd(ctx context.Context, cmd *RaftCommand) error {
+	if rn.node == nil {
+		return fmt.Errorf("raft node not initialized")
+	}
 	data, err := cmd.Serialize()
 	if err != nil {
 		return fmt.Errorf("serialize command: %w", err)
@@ -597,12 +600,18 @@ func (rn *RaftNode) ProposeCmd(ctx context.Context, cmd *RaftCommand) error {
 
 // ProposeConfChange submits a configuration change through Raft consensus.
 func (rn *RaftNode) ProposeConfChange(ctx context.Context, cc raftpb.ConfChangeI) error {
+	if rn.node == nil {
+		return fmt.Errorf("raft node not initialized")
+	}
 	return rn.node.ProposeConfChange(ctx, cc)
 }
 
 // Step feeds an incoming raft message to the node. Called by the transport
 // layer when a message arrives from a peer.
 func (rn *RaftNode) Step(msg raftpb.Message) error {
+	if rn.node == nil {
+		return fmt.Errorf("raft node not initialized")
+	}
 	return rn.node.Step(rn.ctx, msg)
 }
 
