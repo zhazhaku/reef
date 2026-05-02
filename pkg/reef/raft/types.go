@@ -424,6 +424,35 @@ func (s *BoltStore) PessimisticLeaseRenew(key string, ttl time.Duration) error {
 	return fmt.Errorf("not implemented: PessimisticLeaseRenew")
 }
 
+// SaveConfState stores the raft cluster configuration state.
+func (s *BoltStore) SaveConfState(cs raftpb.ConfState) error {
+	data, err := json.Marshal(cs)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("raft_state")).Put([]byte("conf_state"), data)
+	})
+}
+
+// LoadConfState reads the raft cluster configuration state.
+// Returns zero-valued ConfState if not previously saved.
+func (s *BoltStore) LoadConfState() (raftpb.ConfState, error) {
+	var cs raftpb.ConfState
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("raft_state"))
+		if b == nil {
+			return nil
+		}
+		data := b.Get([]byte("conf_state"))
+		if data == nil {
+			return nil
+		}
+		return json.Unmarshal(data, &cs)
+	})
+	return cs, err
+}
+
 type Fsmsnapshot struct {
 	Tasks    map[string]*reef.Task            `json:"tasks"`
 	Clients  map[string]*reef.ClientInfo      `json:"clients"`
@@ -483,9 +512,24 @@ func (fsm *ReefFSM) Apply(entry *raftpb.Entry) error {
 	switch cmd.Type {
 	// ===== Task operations (1-8) =====
 	case CmdTaskEnqueue:
+		// Try TaskEnqueuePayload format first: {"task_id":"...","task_data":{...}}
+		var payload TaskEnqueuePayload
 		var task reef.Task
-		if err := json.Unmarshal(cmd.Payload, &task); err != nil {
-			return err
+		if err := json.Unmarshal(cmd.Payload, &payload); err == nil && payload.TaskID != "" {
+			if len(payload.TaskData) > 0 {
+				if err := json.Unmarshal(payload.TaskData, &task); err != nil {
+					return err
+				}
+			}
+			task.ID = payload.TaskID
+			if task.Status == "" {
+				task.Status = reef.TaskCreated
+			}
+		} else {
+			// Direct reef.Task format: {"id":"...","instruction":"...",...}
+			if err := json.Unmarshal(cmd.Payload, &task); err != nil {
+				return err
+			}
 		}
 		fsm.Tasks[task.ID] = &task
 
