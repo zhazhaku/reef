@@ -28,10 +28,19 @@ const (
 	MsgResume        MessageType = "resume"
 	MsgControlAck    MessageType = "control_ack"
 
+	// Phase 6: Evolution Engine messages
+	MsgGeneSubmit    MessageType = "gene_submit"
+	MsgGeneApproved  MessageType = "gene_approved"
+	MsgGeneRejected  MessageType = "gene_rejected"
+	MsgGeneBroadcast MessageType = "gene_broadcast"
+
 	// Phase 6 — Claim Board messages
 	MsgTaskAvailable MessageType = "task_available"
 	MsgTaskClaimed   MessageType = "task_claimed"
 	MsgTaskClaim     MessageType = "task_claim"
+
+	// Phase 7 — Federation messages
+	MsgRaftLeaderChange MessageType = "raft_leader_change"
 )
 
 // IsValid returns true if the message type is a known enum value.
@@ -40,7 +49,12 @@ func (mt MessageType) IsValid() bool {
 	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
 		MsgCancel, MsgPause, MsgResume, MsgControlAck,
-		MsgTaskAvailable, MsgTaskClaimed, MsgTaskClaim:
+		// Phase 6: Evolution Engine messages
+		MsgGeneSubmit, MsgGeneApproved, MsgGeneRejected, MsgGeneBroadcast,
+		// Phase 6 — Claim Board messages
+		MsgTaskAvailable, MsgTaskClaimed, MsgTaskClaim,
+		// Phase 7 — Federation messages
+		MsgRaftLeaderChange:
 		return true
 	}
 	return false
@@ -194,6 +208,77 @@ type TaskClaimedPayload struct {
 type TaskClaimPayload struct {
 	TaskID   string `json:"task_id"`
 	ClientID string `json:"client_id"`
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Evolution payloads
+// ---------------------------------------------------------------------------
+
+// GeneSubmitPayload is sent by Client to submit a gene for evolution approval.
+type GeneSubmitPayload struct {
+	GeneID         string          `json:"gene_id"`
+	GeneData       json.RawMessage `json:"gene_data"`
+	SourceEventIDs []string        `json:"source_event_ids"`
+	ClientID       string          `json:"client_id"`
+	Timestamp      int64           `json:"timestamp"`
+}
+
+// GeneApprovedPayload is sent by Server to approve a submitted gene.
+type GeneApprovedPayload struct {
+	GeneID     string `json:"gene_id"`
+	ApprovedBy string `json:"approved_by"`
+	ServerTime int64  `json:"server_time"`
+}
+
+// GeneRejectedPayload is sent by Server to reject a submitted gene.
+type GeneRejectedPayload struct {
+	GeneID     string `json:"gene_id"`
+	Reason     string `json:"reason"`
+	Layer      int    `json:"layer"` // which gatekeeper layer rejected: 1/2/3
+	ServerTime int64  `json:"server_time"`
+}
+
+// GeneBroadcastPayload is sent by Server to broadcast an approved gene to all Clients.
+type GeneBroadcastPayload struct {
+	GeneID         string          `json:"gene_id"`
+	GeneData       json.RawMessage `json:"gene_data"`
+	SourceClientID string          `json:"source_client_id"`
+	ApprovedAt     int64           `json:"approved_at"` // Unix millis
+	BroadcastBy    string          `json:"broadcast_by"`
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Federation payloads
+// ---------------------------------------------------------------------------
+
+// RaftLeaderChangePayload is sent by the Raft cluster to all connected clients
+// when a new Leader is elected. Clients use this to update their connection pool.
+type RaftLeaderChangePayload struct {
+	NewLeaderAddr string `json:"new_leader_addr"` // WebSocket address of the new Leader
+	NewLeaderID   string `json:"new_leader_id"`   // Raft node ID of the new Leader
+	OldLeaderAddr string `json:"old_leader_addr"` // Previous Leader address (empty on first election)
+	OldLeaderID   string `json:"old_leader_id"`   // Previous Leader ID (empty on first election)
+	Term          uint64 `json:"term"`            // Raft term number
+	Timestamp     int64  `json:"timestamp"`       // Unix milliseconds when the change occurred
+}
+
+// NewRaftLeaderChangeMessage creates a properly typed Message with the
+// RaftLeaderChange payload.
+func NewRaftLeaderChangeMessage(newAddr, newID, oldAddr, oldID string, term uint64) Message {
+	payload := RaftLeaderChangePayload{
+		NewLeaderAddr: newAddr,
+		NewLeaderID:   newID,
+		OldLeaderAddr: oldAddr,
+		OldLeaderID:   oldID,
+		Term:          term,
+		Timestamp:     time.Now().UnixMilli(),
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	return Message{
+		MsgType:   MsgRaftLeaderChange,
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payloadBytes,
+	}
 }
 
 // ---------------------------------------------------------------------------

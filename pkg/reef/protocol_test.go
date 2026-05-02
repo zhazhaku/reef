@@ -157,3 +157,62 @@ func TestValidateProtocolVersion(t *testing.T) {
 		t.Error("expected error for invalid version")
 	}
 }
+
+func TestRaftLeaderChangeMessage(t *testing.T) {
+	// First election: old addresses are empty
+	msg := NewRaftLeaderChangeMessage("ws://n1:8080", "node-1", "", "", 1)
+	if msg.MsgType != MsgRaftLeaderChange {
+		t.Errorf("MsgType = %s, want %s", msg.MsgType, MsgRaftLeaderChange)
+	}
+
+	// Full JSON round-trip
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var back Message
+	if err := json.Unmarshal(bytes, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.MsgType != MsgRaftLeaderChange {
+		t.Errorf("MsgType = %s after round-trip", back.MsgType)
+	}
+
+	// Decode payload
+	var payload RaftLeaderChangePayload
+	if err := back.DecodePayload(&payload); err != nil {
+		t.Fatalf("DecodePayload: %v", err)
+	}
+	if payload.NewLeaderAddr != "ws://n1:8080" {
+		t.Errorf("NewLeaderAddr = %s", payload.NewLeaderAddr)
+	}
+	if payload.NewLeaderID != "node-1" {
+		t.Errorf("NewLeaderID = %s", payload.NewLeaderID)
+	}
+	if payload.Term != 1 {
+		t.Errorf("Term = %d, want 1", payload.Term)
+	}
+	if payload.Timestamp == 0 {
+		t.Error("Timestamp should be set")
+	}
+
+	// Test with empty old addresses (first election)
+	if payload.OldLeaderAddr != "" {
+		t.Errorf("OldLeaderAddr should be empty on first election, got %q", payload.OldLeaderAddr)
+	}
+	if payload.OldLeaderID != "" {
+		t.Errorf("OldLeaderID should be empty on first election, got %q", payload.OldLeaderID)
+	}
+
+	// Test with term=0
+	msg2 := NewRaftLeaderChangeMessage("ws://n1:8080", "node-1", "ws://n0:8080", "node-0", 0)
+	var payload2 RaftLeaderChangePayload
+	msg2.DecodePayload(&payload2)
+	if payload2.Term != 0 {
+		t.Errorf("Term = %d, want 0", payload2.Term)
+	}
+	if payload2.OldLeaderAddr != "ws://n0:8080" {
+		t.Errorf("OldLeaderAddr = %s", payload2.OldLeaderAddr)
+	}
+}

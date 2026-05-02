@@ -31,29 +31,194 @@ const (
 	CmdTaskCancel    RaftCommandType = 6
 	CmdTaskEscalate  RaftCommandType = 7
 	CmdTaskTimedOut  RaftCommandType = 8
+	// 9-19 reserved for future task operations
 
 	CmdClientRegister   RaftCommandType = 20
 	CmdClientUnregister RaftCommandType = 21
 	CmdClientStale      RaftCommandType = 22
+	// 23-29 reserved for future client operations
 
+	CmdGeneSubmit   RaftCommandType = 30
 	CmdGeneApprove  RaftCommandType = 31
 	CmdGeneReject   RaftCommandType = 32
 	CmdSkillDraft   RaftCommandType = 33
 	CmdSkillApprove RaftCommandType = 34
 	CmdSkillReject  RaftCommandType = 35
+	// 36-39 reserved for future evolution operations
 
 	CmdClaimPost   RaftCommandType = 40
 	CmdClaimAssign RaftCommandType = 41
 	CmdClaimExpire RaftCommandType = 42
+	// 43-49 reserved for future claim operations
 
 	CmdDagUpdate RaftCommandType = 50
+	// 51-MaxInt32 reserved for future DAG and other operations
 )
+
+// String returns the human-readable name of the command type.
+func (t RaftCommandType) String() string {
+	switch t {
+	case CmdTaskEnqueue:
+		return "CmdTaskEnqueue"
+	case CmdTaskAssign:
+		return "CmdTaskAssign"
+	case CmdTaskStart:
+		return "CmdTaskStart"
+	case CmdTaskComplete:
+		return "CmdTaskComplete"
+	case CmdTaskFailed:
+		return "CmdTaskFailed"
+	case CmdTaskCancel:
+		return "CmdTaskCancel"
+	case CmdTaskEscalate:
+		return "CmdTaskEscalate"
+	case CmdTaskTimedOut:
+		return "CmdTaskTimedOut"
+	case CmdClientRegister:
+		return "CmdClientRegister"
+	case CmdClientUnregister:
+		return "CmdClientUnregister"
+	case CmdClientStale:
+		return "CmdClientStale"
+	case CmdGeneSubmit:
+		return "CmdGeneSubmit"
+	case CmdGeneApprove:
+		return "CmdGeneApprove"
+	case CmdGeneReject:
+		return "CmdGeneReject"
+	case CmdSkillDraft:
+		return "CmdSkillDraft"
+	case CmdSkillApprove:
+		return "CmdSkillApprove"
+	case CmdSkillReject:
+		return "CmdSkillReject"
+	case CmdClaimPost:
+		return "CmdClaimPost"
+	case CmdClaimAssign:
+		return "CmdClaimAssign"
+	case CmdClaimExpire:
+		return "CmdClaimExpire"
+	case CmdDagUpdate:
+		return "CmdDagUpdate"
+	default:
+		return fmt.Sprintf("RaftCommandType(%d)", int32(t))
+	}
+}
+
+// IsTaskOp returns true for task-related command types (1-8).
+func (t RaftCommandType) IsTaskOp() bool {
+	return t >= 1 && t <= 8
+}
+
+// IsClientOp returns true for client management command types (20-22).
+func (t RaftCommandType) IsClientOp() bool {
+	return t >= 20 && t <= 22
+}
+
+// IsEvolutionOp returns true for evolution-related command types (30-35).
+func (t RaftCommandType) IsEvolutionOp() bool {
+	return t >= 30 && t <= 35
+}
+
+// IsClaimOp returns true for claim board command types (40-42).
+func (t RaftCommandType) IsClaimOp() bool {
+	return t >= 40 && t <= 42
+}
+
+// IsDagOp returns true for DAG command types (50).
+func (t RaftCommandType) IsDagOp() bool {
+	return t == 50
+}
+
+// Domain returns the domain name for this command type.
+func (t RaftCommandType) Domain() string {
+	switch {
+	case t.IsTaskOp():
+		return "task"
+	case t.IsClientOp():
+		return "client"
+	case t.IsEvolutionOp():
+		return "evolution"
+	case t.IsClaimOp():
+		return "claim"
+	case t.IsDagOp():
+		return "dag"
+	default:
+		return "unknown"
+	}
+}
 
 type RaftCommand struct {
 	Type      RaftCommandType `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
 	Timestamp int64           `json:"timestamp"`
 	Proposer  string          `json:"proposer"`
+}
+
+// NewRaftCommand creates a RaftCommand with the current timestamp and
+// serialized payload. Returns error if payload marshaling fails.
+func NewRaftCommand(typ RaftCommandType, payload interface{}, proposer string) (*RaftCommand, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+	return &RaftCommand{
+		Type:      typ,
+		Payload:   json.RawMessage(payloadBytes),
+		Timestamp: time.Now().UnixMilli(),
+		Proposer:  proposer,
+	}, nil
+}
+
+// Serialize marshals the RaftCommand to JSON bytes (for writing to the Raft log).
+func (c *RaftCommand) Serialize() ([]byte, error) {
+	return json.Marshal(c)
+}
+
+// DeserializeRaftCommand unmarshals JSON bytes into a RaftCommand.
+func DeserializeRaftCommand(data []byte) (*RaftCommand, error) {
+	var cmd RaftCommand
+	if err := json.Unmarshal(data, &cmd); err != nil {
+		return nil, err
+	}
+	return &cmd, nil
+}
+
+// UnmarshalPayload deserializes the command payload into the given target.
+func (c *RaftCommand) UnmarshalPayload(target interface{}) error {
+	return json.Unmarshal(c.Payload, target)
+}
+
+// Validate checks that the command has a known type and valid JSON payload.
+func (c *RaftCommand) Validate() error {
+	if c == nil {
+		return fmt.Errorf("nil RaftCommand")
+	}
+	if c.Type.Domain() == "unknown" {
+		return fmt.Errorf("unknown RaftCommandType: %s", c.Type.String())
+	}
+	if len(c.Payload) > 0 {
+		var js json.RawMessage
+		if err := json.Unmarshal(c.Payload, &js); err != nil {
+			return fmt.Errorf("invalid payload JSON: %w", err)
+		}
+	}
+	return nil
+}
+
+// IsConsensus returns true if this command must go through Raft consensus.
+// Local-only commands (currently none defined) return false.
+func (c *RaftCommand) IsConsensus() bool {
+	if c == nil {
+		return false
+	}
+	// All currently defined command types require consensus.
+	// Future local-only types would be excluded here.
+	return c.Type.Domain() != "unknown"
+}
+
+func (c *RaftCommand) IsLocal() bool {
+	return !c.IsConsensus()
 }
 
 var ErrNotLeader = fmt.Errorf("not leader")

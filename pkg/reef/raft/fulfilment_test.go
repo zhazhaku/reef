@@ -90,12 +90,81 @@ func TestRaftCommandSerialization(t *testing.T) {
 	}
 }
 
+func TestRaftCommandSerde(t *testing.T) {
+	// Test NewRaftCommand and round-trip for 5 representative types
+	types := map[RaftCommandType]interface{}{
+		CmdTaskEnqueue:    &TaskEnqueuePayload{TaskID: "t1", TaskData: json.RawMessage(`{"instruction":"test"}`)},
+		CmdClientRegister: &ClientRegisterPayload{ClientID: "c1", Role: "coder", Skills: []string{"go"}, Capacity: 3},
+		CmdGeneSubmit:     &GeneSubmitPayload{Gene: json.RawMessage(`{"strategy":"fb"}`)},
+		CmdClaimPost:      &ClaimPostPayload{TaskID: "t2", TaskData: json.RawMessage(`{"priority":5}`)},
+		CmdDagUpdate:      &DagUpdatePayload{NodeID: "n1", Status: "completed", Output: json.RawMessage(`{"result":"ok"}`), UpdatedAt: 1000},
+	}
+
+	for typ, payload := range types {
+		cmd, err := NewRaftCommand(typ, payload, "node-1")
+		if err != nil {
+			t.Fatalf("NewRaftCommand(%d): %v", typ, err)
+		}
+		if cmd.Type != typ {
+			t.Errorf("Type = %d, want %d", cmd.Type, typ)
+		}
+		if cmd.Proposer != "node-1" {
+			t.Errorf("Proposer = %s, want node-1", cmd.Proposer)
+		}
+		if cmd.Timestamp == 0 {
+			t.Error("Timestamp should be non-zero")
+		}
+
+		// Serialize + Deserialize
+		data, err := cmd.Serialize()
+		if err != nil {
+			t.Fatalf("Serialize(%d): %v", typ, err)
+		}
+		restored, err := DeserializeRaftCommand(data)
+		if err != nil {
+			t.Fatalf("DeserializeRaftCommand(%d): %v", typ, err)
+		}
+		if restored.Type != cmd.Type || restored.Proposer != cmd.Proposer || restored.Timestamp != cmd.Timestamp {
+			t.Errorf("round-trip mismatch for %d", typ)
+		}
+	}
+
+	// Test UnmarshalPayload
+	cmd, _ := NewRaftCommand(CmdTaskAssign, &TaskAssignPayload{TaskID: "t1", ClientID: "c1"}, "n1")
+	var payload TaskAssignPayload
+	if err := cmd.UnmarshalPayload(&payload); err != nil {
+		t.Fatalf("UnmarshalPayload: %v", err)
+	}
+	if payload.TaskID != "t1" || payload.ClientID != "c1" {
+		t.Error("UnmarshalPayload mismatch")
+	}
+
+	// Test empty payload
+	emptyCmd := &RaftCommand{Type: CmdTaskEnqueue, Payload: json.RawMessage(`{}`), Timestamp: 1000, Proposer: "n1"}
+	var emptyPayload TaskEnqueuePayload
+	if err := emptyCmd.UnmarshalPayload(&emptyPayload); err != nil {
+		t.Errorf("empty payload should unmarshal cleanly: %v", err)
+	}
+
+	// Test invalid JSON payload
+	badCmd := &RaftCommand{Type: CmdTaskEnqueue, Payload: json.RawMessage(`not-json`), Timestamp: 1000, Proposer: "n1"}
+	var badPayload TaskEnqueuePayload
+	if err := badCmd.UnmarshalPayload(&badPayload); err == nil {
+		t.Error("expected error for invalid JSON payload")
+	}
+
+	// Test invalid JSON data for DeserializeRaftCommand
+	if _, err := DeserializeRaftCommand([]byte(`not-json`)); err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
 func TestAllRaftCommandTypes(t *testing.T) {
 	for _, ct := range []RaftCommandType{
 		CmdTaskEnqueue, CmdTaskAssign, CmdTaskStart, CmdTaskComplete,
 		CmdTaskFailed, CmdTaskCancel, CmdTaskEscalate, CmdTaskTimedOut,
 		CmdClientRegister, CmdClientUnregister, CmdClientStale,
-		CmdGeneApprove, CmdGeneReject, CmdSkillDraft, CmdSkillApprove, CmdSkillReject,
+		CmdGeneSubmit, CmdGeneApprove, CmdGeneReject, CmdSkillDraft, CmdSkillApprove, CmdSkillReject,
 		CmdClaimPost, CmdClaimAssign, CmdClaimExpire,
 		CmdDagUpdate,
 	} {
@@ -106,6 +175,213 @@ func TestAllRaftCommandTypes(t *testing.T) {
 			t.Errorf("type %d: %v", ct, err)
 		}
 	}
+}
+
+func TestCommandTypeEnum(t *testing.T) {
+	// Verify constant values
+	tests := []struct {
+		ct       RaftCommandType
+		wantVal  int32
+		wantStr  string
+		isTask   bool
+		isClient bool
+		isEvo    bool
+		isClaim  bool
+		isDag    bool
+		domain   string
+	}{
+		{CmdTaskEnqueue, 1, "CmdTaskEnqueue", true, false, false, false, false, "task"},
+		{CmdTaskAssign, 2, "CmdTaskAssign", true, false, false, false, false, "task"},
+		{CmdTaskTimedOut, 8, "CmdTaskTimedOut", true, false, false, false, false, "task"},
+		{CmdClientRegister, 20, "CmdClientRegister", false, true, false, false, false, "client"},
+		{CmdClientStale, 22, "CmdClientStale", false, true, false, false, false, "client"},
+		{CmdGeneSubmit, 30, "CmdGeneSubmit", false, false, true, false, false, "evolution"},
+		{CmdGeneApprove, 31, "CmdGeneApprove", false, false, true, false, false, "evolution"},
+		{CmdSkillReject, 35, "CmdSkillReject", false, false, true, false, false, "evolution"},
+		{CmdClaimPost, 40, "CmdClaimPost", false, false, false, true, false, "claim"},
+		{CmdClaimExpire, 42, "CmdClaimExpire", false, false, false, true, false, "claim"},
+		{CmdDagUpdate, 50, "CmdDagUpdate", false, false, false, false, true, "dag"},
+	}
+
+	for _, tt := range tests {
+		if int32(tt.ct) != tt.wantVal {
+			t.Errorf("%s value = %d, want %d", tt.ct, int32(tt.ct), tt.wantVal)
+		}
+		if tt.ct.String() != tt.wantStr {
+			t.Errorf("%s.String() = %q, want %q", tt.ct, tt.ct.String(), tt.wantStr)
+		}
+		if tt.ct.IsTaskOp() != tt.isTask {
+			t.Errorf("%s.IsTaskOp() = %v, want %v", tt.ct, tt.ct.IsTaskOp(), tt.isTask)
+		}
+		if tt.ct.IsClientOp() != tt.isClient {
+			t.Errorf("%s.IsClientOp() = %v, want %v", tt.ct, tt.ct.IsClientOp(), tt.isClient)
+		}
+		if tt.ct.IsEvolutionOp() != tt.isEvo {
+			t.Errorf("%s.IsEvolutionOp() = %v, want %v", tt.ct, tt.ct.IsEvolutionOp(), tt.isEvo)
+		}
+		if tt.ct.IsClaimOp() != tt.isClaim {
+			t.Errorf("%s.IsClaimOp() = %v, want %v", tt.ct, tt.ct.IsClaimOp(), tt.isClaim)
+		}
+		if tt.ct.IsDagOp() != tt.isDag {
+			t.Errorf("%s.IsDagOp() = %v, want %v", tt.ct, tt.ct.IsDagOp(), tt.isDag)
+		}
+		if tt.ct.Domain() != tt.domain {
+			t.Errorf("%s.Domain() = %q, want %q", tt.ct, tt.ct.Domain(), tt.domain)
+		}
+	}
+
+	// Edge case: unknown type
+	unknown := RaftCommandType(99)
+	if unknown.String() != "RaftCommandType(99)" {
+		t.Errorf("unknown.String() = %q, want %q", unknown.String(), "RaftCommandType(99)")
+	}
+	if unknown.IsTaskOp() || unknown.IsClientOp() || unknown.IsEvolutionOp() || unknown.IsClaimOp() || unknown.IsDagOp() {
+		t.Error("unknown type should return false for all Is* methods")
+	}
+	if unknown.Domain() != "unknown" {
+		t.Errorf("unknown.Domain() = %q, want %q", unknown.Domain(), "unknown")
+	}
+
+	// Edge case: type 0
+	zero := RaftCommandType(0)
+	if zero.String() != "RaftCommandType(0)" {
+		t.Errorf("zero.String() = %q", zero.String())
+	}
+}
+
+func TestPayloadStructs(t *testing.T) {
+	// Task payloads
+	taskPayloads := []struct {
+		name    string
+		payload interface{}
+	}{
+		{"TaskEnqueuePayload", &TaskEnqueuePayload{TaskID: "t1", TaskData: json.RawMessage(`{"instruction":"test"}`)}},
+		{"TaskAssignPayload", &TaskAssignPayload{TaskID: "t1", ClientID: "c1"}},
+		{"TaskStartPayload", &TaskStartPayload{TaskID: "t1", ClientID: "c1"}},
+		{"TaskCompletePayload", &TaskCompletePayload{TaskID: "t1", ClientID: "c1", Result: json.RawMessage(`{"text":"ok"}`), ExecutionTimeMs: 1234}},
+		{"TaskFailedPayload", &TaskFailedPayload{TaskID: "t1", ClientID: "c1", Error: json.RawMessage(`{"type":"E001"}`), AttemptCount: 0}},
+		{"TaskCancelPayload", &TaskCancelPayload{TaskID: "t1", Reason: "user requested"}},
+		{"TaskEscalatePayload", &TaskEscalatePayload{TaskID: "t1", EscalationLevel: 1}},
+		{"TaskTimedOutPayload", &TaskTimedOutPayload{TaskID: "t1", TimeoutAt: 1000}},
+	}
+
+	for _, tt := range taskPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.payload)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var back map[string]interface{}
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+	}
+
+	// Client payloads
+	clientPayloads := []struct {
+		name    string
+		payload interface{}
+	}{
+		{"ClientRegisterPayload", &ClientRegisterPayload{ClientID: "c1", Role: "coder", Skills: []string{"go", "rust"}, Capacity: 5}},
+		{"ClientUnregisterPayload", &ClientUnregisterPayload{ClientID: "c1"}},
+		{"ClientStalePayload", &ClientStalePayload{ClientID: "c1"}},
+	}
+	for _, tt := range clientPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			data, _ := json.Marshal(tt.payload)
+			var back map[string]interface{}
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+	}
+
+	// Evolution payloads
+	evoPayloads := []struct {
+		name    string
+		payload interface{}
+	}{
+		{"GeneSubmitPayload", &GeneSubmitPayload{Gene: json.RawMessage(`{"strategy":"fb"}`)}},
+		{"GeneApprovePayload", &GeneApprovePayload{GeneID: "g1", ApproverNode: "n1"}},
+		{"GeneRejectPayload", &GeneRejectPayload{GeneID: "g1", Reason: "invalid", RejecterNode: "n1"}},
+		{"SkillDraftPayload", &SkillDraftPayload{Draft: json.RawMessage(`{"name":"greet"}`)}},
+		{"SkillApprovePayload", &SkillApprovePayload{DraftID: "d1", Approver: "admin"}},
+		{"SkillRejectPayload", &SkillRejectPayload{DraftID: "d1", Reason: "bad", Rejecter: "admin"}},
+	}
+	for _, tt := range evoPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			data, _ := json.Marshal(tt.payload)
+			var back map[string]interface{}
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+	}
+
+	// Claim payloads
+	claimPayloads := []struct {
+		name    string
+		payload interface{}
+	}{
+		{"ClaimPostPayload", &ClaimPostPayload{TaskID: "t1", TaskData: json.RawMessage(`{"priority":5}`)}},
+		{"ClaimAssignPayload", &ClaimAssignPayload{TaskID: "t1", ClientID: "c1"}},
+		{"ClaimExpirePayload", &ClaimExpirePayload{TaskID: "t1", RetryCount: 1}},
+	}
+	for _, tt := range claimPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			data, _ := json.Marshal(tt.payload)
+			var back map[string]interface{}
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+	}
+
+	// DAG payload
+	t.Run("DagUpdatePayload", func(t *testing.T) {
+		p := &DagUpdatePayload{NodeID: "n1", Status: "running", Output: json.RawMessage(`{"progress":50}`), UpdatedAt: 2000}
+		data, _ := json.Marshal(p)
+		var back DagUpdatePayload
+		if err := json.Unmarshal(data, &back); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if back.NodeID != "n1" || back.Status != "running" || back.UpdatedAt != 2000 {
+			t.Error("DagUpdatePayload round-trip mismatch")
+		}
+	})
+
+	// Edge cases: empty slices and nil json.RawMessage
+	t.Run("ClientRegisterPayload_empty_skills", func(t *testing.T) {
+		p := &ClientRegisterPayload{ClientID: "c1", Role: "coder", Skills: []string{}, Capacity: 0}
+		data, _ := json.Marshal(p)
+		var back ClientRegisterPayload
+		json.Unmarshal(data, &back)
+		if back.ClientID != "c1" {
+			t.Error("empty skills round-trip mismatch")
+		}
+	})
+
+	t.Run("GeneSubmitPayload_nil_gene", func(t *testing.T) {
+		p := &GeneSubmitPayload{Gene: nil}
+		data, _ := json.Marshal(p)
+		var back GeneSubmitPayload
+		json.Unmarshal(data, &back)
+		// JSON null unmarshals to json.RawMessage("null"), not nil
+		if back.Gene == nil && string(back.Gene) != "null" {
+			t.Error("nil gene: expected null or nil")
+		}
+	})
+
+	t.Run("TaskFailedPayload_zero_attempts", func(t *testing.T) {
+		p := &TaskFailedPayload{TaskID: "t1", ClientID: "c1", AttemptCount: 0}
+		data, _ := json.Marshal(p)
+		var back TaskFailedPayload
+		json.Unmarshal(data, &back)
+		if back.AttemptCount != 0 {
+			t.Error("zero attempts expected")
+		}
+	})
 }
 
 func TestReefFSMApplyTaskEnqueue(t *testing.T) {
@@ -404,6 +680,188 @@ func TestBoltStoreLockLeaseStubs(t *testing.T) {
 	}
 	if err3 := store.PessimisticLeaseRenew("key1", time.Second); err3 == nil {
 		t.Error("PessimisticLeaseRenew stub should return error")
+	}
+}
+
+// =====================================================================
+// P7-03 tests: Validate, IsConsensus, IsLocal, Dispatch
+// =====================================================================
+
+func TestRaftCommandValidate(t *testing.T) {
+	// Valid command
+	cmd, _ := NewRaftCommand(CmdTaskEnqueue, &TaskEnqueuePayload{TaskID: "t1"}, "n1")
+	if err := cmd.Validate(); err != nil {
+		t.Errorf("valid command should validate: %v", err)
+	}
+
+	// Nil command
+	var nilCmd *RaftCommand
+	if err := nilCmd.Validate(); err == nil {
+		t.Error("nil command should fail validation")
+	}
+
+	// Unknown type
+	unknown := &RaftCommand{Type: RaftCommandType(99), Payload: json.RawMessage(`{}`), Timestamp: 1000, Proposer: "n1"}
+	if err := unknown.Validate(); err == nil {
+		t.Error("unknown type should fail validation")
+	}
+
+	// Invalid payload JSON
+	badPayload := &RaftCommand{Type: CmdTaskEnqueue, Payload: json.RawMessage(`not-json`), Timestamp: 1000, Proposer: "n1"}
+	if err := badPayload.Validate(); err == nil {
+		t.Error("bad payload JSON should fail validation")
+	}
+
+	// Empty payload (valid for commands with no data)
+	emptyPayload := &RaftCommand{Type: CmdTaskEnqueue, Payload: json.RawMessage(``), Timestamp: 1000, Proposer: "n1"}
+	if err := emptyPayload.Validate(); err != nil {
+		t.Errorf("empty payload should validate: %v", err)
+	}
+}
+
+func TestRaftCommandConsensus(t *testing.T) {
+	allTypes := []RaftCommandType{
+		CmdTaskEnqueue, CmdTaskAssign, CmdTaskStart, CmdTaskComplete,
+		CmdTaskFailed, CmdTaskCancel, CmdTaskEscalate, CmdTaskTimedOut,
+		CmdClientRegister, CmdClientUnregister, CmdClientStale,
+		CmdGeneSubmit, CmdGeneApprove, CmdGeneReject,
+		CmdSkillDraft, CmdSkillApprove, CmdSkillReject,
+		CmdClaimPost, CmdClaimAssign, CmdClaimExpire,
+		CmdDagUpdate,
+	}
+
+	for _, ct := range allTypes {
+		cmd := &RaftCommand{Type: ct, Payload: json.RawMessage(`{}`), Timestamp: 1000, Proposer: "n1"}
+		if !cmd.IsConsensus() {
+			t.Errorf("%s should require consensus", ct)
+		}
+		if cmd.IsLocal() {
+			t.Errorf("%s should not be local", ct)
+		}
+	}
+
+	// Nil command
+	var nilCmd *RaftCommand
+	if nilCmd.IsConsensus() {
+		t.Error("nil command should not be consensus")
+	}
+	if !nilCmd.IsLocal() {
+		t.Error("nil command should be local")
+	}
+
+	// Unknown type
+	unknown := &RaftCommand{Type: RaftCommandType(99), Payload: json.RawMessage(`{}`), Timestamp: 1000, Proposer: "n1"}
+	if unknown.IsConsensus() {
+		t.Error("unknown type should not be consensus")
+	}
+	if !unknown.IsLocal() {
+		t.Error("unknown type should be local")
+	}
+}
+
+func TestDispatchTable(t *testing.T) {
+	// All defined types should map to DispatchConsensus
+	allTypes := []RaftCommandType{
+		CmdTaskEnqueue, CmdTaskAssign, CmdTaskStart, CmdTaskComplete,
+		CmdTaskFailed, CmdTaskCancel, CmdTaskEscalate, CmdTaskTimedOut,
+		CmdClientRegister, CmdClientUnregister, CmdClientStale,
+		CmdGeneSubmit, CmdGeneApprove, CmdGeneReject,
+		CmdSkillDraft, CmdSkillApprove, CmdSkillReject,
+		CmdClaimPost, CmdClaimAssign, CmdClaimExpire,
+		CmdDagUpdate,
+	}
+
+	for _, ct := range allTypes {
+		if !DispatchesToConsensus(ct) {
+			t.Errorf("%s should dispatch to consensus", ct)
+		}
+		if GetDispatchTarget(ct) != DispatchConsensus {
+			t.Errorf("%s should have DispatchConsensus target", ct)
+		}
+	}
+
+	// Unknown type defaults to non-consensus
+	if GetDispatchTarget(RaftCommandType(99)) != DispatchNonConsensus {
+		t.Error("unknown type should dispatch to non-consensus")
+	}
+	if DispatchesToConsensus(RaftCommandType(99)) {
+		t.Error("unknown type should not dispatch to consensus")
+	}
+}
+
+// =====================================================================
+// Protocol tests: raft_leader_change
+// =====================================================================
+
+func TestRaftLeaderChangeMessage(t *testing.T) {
+	// First election: old addresses are empty
+	msg := reef.NewRaftLeaderChangeMessage("ws://n2:8080", "node-2", "", "", 3)
+	if msg.MsgType != reef.MsgRaftLeaderChange {
+		t.Errorf("MsgType = %s, want %s", msg.MsgType, reef.MsgRaftLeaderChange)
+	}
+
+	var payload reef.RaftLeaderChangePayload
+	if err := msg.DecodePayload(&payload); err != nil {
+		t.Fatalf("DecodePayload: %v", err)
+	}
+	if payload.NewLeaderAddr != "ws://n2:8080" {
+		t.Errorf("NewLeaderAddr = %s", payload.NewLeaderAddr)
+	}
+	if payload.NewLeaderID != "node-2" {
+		t.Errorf("NewLeaderID = %s", payload.NewLeaderID)
+	}
+	if payload.OldLeaderAddr != "" {
+		t.Errorf("OldLeaderAddr should be empty, got %q", payload.OldLeaderAddr)
+	}
+	if payload.OldLeaderID != "" {
+		t.Errorf("OldLeaderID should be empty, got %q", payload.OldLeaderID)
+	}
+	if payload.Term != 3 {
+		t.Errorf("Term = %d, want 3", payload.Term)
+	}
+	if payload.Timestamp == 0 {
+		t.Error("Timestamp should be set")
+	}
+
+	// Leader change with old addresses
+	msg2 := reef.NewRaftLeaderChangeMessage("ws://n3:8080", "node-3", "ws://n2:8080", "node-2", 4)
+	var payload2 reef.RaftLeaderChangePayload
+	msg2.DecodePayload(&payload2)
+	if payload2.OldLeaderAddr != "ws://n2:8080" {
+		t.Errorf("OldLeaderAddr = %s", payload2.OldLeaderAddr)
+	}
+	if payload2.OldLeaderID != "node-2" {
+		t.Errorf("OldLeaderID = %s", payload2.OldLeaderID)
+	}
+
+	// Term 0
+	msg3 := reef.NewRaftLeaderChangeMessage("ws://n1:8080", "node-1", "", "", 0)
+	var payload3 reef.RaftLeaderChangePayload
+	msg3.DecodePayload(&payload3)
+	if payload3.Term != 0 {
+		t.Errorf("Term = %d, want 0", payload3.Term)
+	}
+
+	// Message type validity
+	if !reef.MsgRaftLeaderChange.IsValid() {
+		t.Error("MsgRaftLeaderChange should be valid")
+	}
+
+	// Round-trip through JSON
+	data, _ := json.Marshal(msg)
+	var restored reef.Message
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("JSON round-trip: %v", err)
+	}
+	if restored.MsgType != reef.MsgRaftLeaderChange {
+		t.Error("MsgType mismatch after round-trip")
+	}
+	var restoredPayload reef.RaftLeaderChangePayload
+	if err := restored.DecodePayload(&restoredPayload); err != nil {
+		t.Fatalf("decode restored: %v", err)
+	}
+	if restoredPayload.NewLeaderAddr != "ws://n2:8080" {
+		t.Error("NewLeaderAddr mismatch after round-trip")
 	}
 }
 
