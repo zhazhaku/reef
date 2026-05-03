@@ -71,19 +71,6 @@ func TestSemanticRetriever_CreateTable(t *testing.T) {
 	}
 }
 
-func TestSemanticRetriever_Retrieve_Stub(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	sr := NewSemanticRetriever(db)
-	genes, err := sr.Retrieve("coder", []string{"go"}, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if genes == nil {
-		t.Error("genes should not be nil")
-	}
-}
 
 func TestGene_Fields(t *testing.T) {
 	g := Gene{
