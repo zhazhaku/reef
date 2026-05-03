@@ -17,13 +17,16 @@ type ExecFunc func(ctx context.Context, instruction string) (string, error)
 
 // TaskRunner manages the execution lifecycle of tasks on a Client node.
 type TaskRunner struct {
-	connector   *Connector
-	exec        ExecFunc
-	mu          sync.Mutex
-	tasks       map[string]*RunningTask
-	maxRetries  int
-	retryDelay  time.Duration
-	logger      *slog.Logger
+	connector      *Connector
+	exec           ExecFunc
+	mu             sync.Mutex
+	tasks          map[string]*RunningTask
+	maxRetries     int
+	retryDelay     time.Duration
+	logger         *slog.Logger
+	sandboxDir     string
+	sandboxFactory SandboxFactory
+	maxRounds      int
 }
 
 // RunningTask represents an in-flight task on the Client.
@@ -38,6 +41,10 @@ type RunningTask struct {
 	Error       error
 	Attempts    []reef.AttemptRecord
 	mu          sync.Mutex
+
+	// P8 cognitive sandbox (nil when no SandboxDir)
+	Sandbox        Sandbox
+	RoundsExecuted int
 }
 
 // TaskRunnerOptions configures the runner.
@@ -47,6 +54,11 @@ type TaskRunnerOptions struct {
 	MaxRetries  int
 	RetryDelay  time.Duration // base delay for retries (default 1s)
 	Logger      *slog.Logger
+
+	// P8 cognitive sandbox (optional)
+	SandboxDir     string         // base directory for task sandboxes
+	SandboxFactory SandboxFactory // factory to create sandboxes (nil = disabled)
+	MaxRounds      int            // max rounds per task (0 = unlimited)
 }
 
 // NewTaskRunner creates a new task runner.
@@ -61,12 +73,15 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 		opts.Logger = slog.Default()
 	}
 	return &TaskRunner{
-		connector:  opts.Connector,
-		exec:       opts.Exec,
-		tasks:      make(map[string]*RunningTask),
-		maxRetries: opts.MaxRetries,
-		retryDelay: opts.RetryDelay,
-		logger:     opts.Logger,
+		connector:      opts.Connector,
+		exec:           opts.Exec,
+		tasks:          make(map[string]*RunningTask),
+		maxRetries:     opts.MaxRetries,
+		retryDelay:     opts.RetryDelay,
+		logger:         opts.Logger,
+		sandboxDir:     opts.SandboxDir,
+		sandboxFactory: opts.SandboxFactory,
+		maxRounds:      opts.MaxRounds,
 	}
 }
 
@@ -85,6 +100,17 @@ func (r *TaskRunner) StartTask(taskID, instruction string, maxRetries int) {
 		CancelFunc:  cancel,
 		TaskCtx:     tc,
 		Status:      "running",
+	}
+
+	// Create sandbox if configured
+	if r.sandboxFactory != nil && r.sandboxDir != "" {
+		sb, err := r.sandboxFactory(taskID, r.sandboxDir)
+		if err != nil {
+			r.logger.Warn("sandbox creation failed, continuing without",
+				slog.String("task_id", taskID), slog.String("error", err.Error()))
+		} else {
+			rt.Sandbox = sb
+		}
 	}
 
 	r.mu.Lock()
@@ -170,7 +196,30 @@ func (r *TaskRunner) runOnce(rt *RunningTask) (string, error) {
 	if r.exec == nil {
 		return "", fmt.Errorf("no exec function configured")
 	}
-	return r.exec(rt.Ctx, rt.Instruction)
+
+	// Run user exec function
+	result, err := r.exec(rt.Ctx, rt.Instruction)
+
+	// Track round if sandbox is attached
+	if rt.Sandbox != nil {
+		rt.mu.Lock()
+		rt.RoundsExecuted++
+		roundNum := rt.RoundsExecuted
+		rt.mu.Unlock()
+
+		if err != nil {
+			rt.Sandbox.AppendRound("error", err.Error(), "")
+		} else {
+			rt.Sandbox.AppendRound("exec", result, "")
+		}
+
+		// Check max rounds
+		if r.maxRounds > 0 && roundNum >= r.maxRounds {
+			r.reportProgress(rt.TaskID, "max_rounds", roundNum, "")
+		}
+	}
+
+	return result, err
 }
 
 // CancelTask aborts a running task.
