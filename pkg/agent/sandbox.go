@@ -75,6 +75,13 @@ func (sb *TaskSandbox) Layers() *ContextLayers {
 	return sb.layers
 }
 
+// Rounds returns the number of working rounds executed.
+func (sb *TaskSandbox) Rounds() int {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return len(sb.layers.Working)
+}
+
 // Window returns the context window.
 func (sb *TaskSandbox) Window() *ContextWindow {
 	return sb.window
