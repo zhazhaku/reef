@@ -61,6 +61,12 @@ type TaskResult struct {
 	Text     string         `json:"text,omitempty"`
 	Files    []string       `json:"files,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+
+	// P8 cognitive metadata (set by TaskRunner when sandbox is active)
+	RoundsExecuted      int    `json:"rounds_executed,omitempty"`
+	CorruptionsDetected int    `json:"corruptions_detected,omitempty"`
+	WorkingSummary      string `json:"working_summary,omitempty"`
+	TokenUsed           int    `json:"token_used,omitempty"`
 }
 
 // TaskError holds details about a task failure.
@@ -68,6 +74,10 @@ type TaskError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
 	Detail  string `json:"detail,omitempty"`
+
+	// P8 cognitive metadata
+	RoundsExecuted int `json:"rounds_executed,omitempty"`
+	AttemptCount   int `json:"attempt_count,omitempty"`
 }
 
 // AttemptRecord tracks a single execution attempt.

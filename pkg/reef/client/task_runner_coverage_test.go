@@ -398,7 +398,7 @@ func TestTaskRunner_ReportCompleted_PayloadContent(t *testing.T) {
 		Connector: conn,
 	})
 
-	runner.reportCompleted("t-comp", "result-text", 1234)
+	runner.reportCompleted("t-comp", "result-text", 1234, 3)
 
 	select {
 	case msg := <-sendCh:

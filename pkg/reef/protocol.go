@@ -152,10 +152,13 @@ type TaskProgressPayload struct {
 
 // TaskCompletedPayload is sent by Client when a task finishes successfully.
 type TaskCompletedPayload struct {
-	TaskID           string         `json:"task_id"`
-	Result           map[string]any `json:"result"`
-	ExecutionTimeMs  int64          `json:"execution_time_ms"`
-	Timestamp        int64          `json:"timestamp"`
+	TaskID              string         `json:"task_id"`
+	Result              map[string]any `json:"result"`
+	ExecutionTimeMs     int64          `json:"execution_time_ms"`
+	Timestamp           int64          `json:"timestamp"`
+	RoundsExecuted      int            `json:"rounds_executed,omitempty"`
+	CorruptionsDetected int            `json:"corruptions_detected,omitempty"`
+	WorkingSummary      string         `json:"working_summary,omitempty"`
 }
 
 // TaskFailedPayload is sent by Client when a task fails permanently.
@@ -166,6 +169,7 @@ type TaskFailedPayload struct {
 	ErrorDetail     string          `json:"error_detail,omitempty"`
 	AttemptHistory  []AttemptRecord `json:"attempt_history"`
 	Timestamp       int64           `json:"timestamp"`
+	RoundsExecuted  int             `json:"rounds_executed,omitempty"`
 }
 
 // ControlPayload is used for cancel/pause/resume control messages.

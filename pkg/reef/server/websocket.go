@@ -40,6 +40,21 @@ type WebSocketServer struct {
 
 	pendingMu       sync.Mutex
 	pendingControls map[string][]reef.Message // buffered control messages for disconnected clients
+
+	// geneHandler handles gene_submit messages (Phase 6 evolution engine).
+	// When nil (default), gene_submit messages are logged and ignored.
+	geneHandler GeneSubmitHandler
+}
+
+// GeneSubmitHandler is the interface for handling gene_submit messages.
+// Implementations route genes through the evolution pipeline (gatekeeper → broadcaster → merger).
+type GeneSubmitHandler interface {
+	HandleGeneSubmission(clientID string, msg reef.Message) error
+}
+
+// SetGeneSubmitHandler sets the handler for gene_submit messages.
+func (s *WebSocketServer) SetGeneSubmitHandler(h GeneSubmitHandler) {
+	s.geneHandler = h
 }
 
 // NewWebSocketServer creates a WebSocket acceptor.
@@ -274,6 +289,18 @@ func (s *WebSocketServer) handleMessage(c *Conn, msg reef.Message) {
 			slog.String("client_id", c.id),
 			slog.String("control_type", payload.ControlType),
 			slog.String("task_id", payload.TaskID))
+
+	case reef.MsgGeneSubmit:
+		if s.geneHandler == nil {
+			s.logger.Warn("gene_submit received but no GeneSubmitHandler configured",
+				slog.String("client_id", c.id))
+			break
+		}
+		if err := s.geneHandler.HandleGeneSubmission(c.id, msg); err != nil {
+			s.logger.Error("gene submission failed",
+				slog.String("client_id", c.id),
+				slog.String("error", err.Error()))
+		}
 
 	default:
 		s.logger.Warn("unexpected message type from client",

@@ -473,6 +473,9 @@ func (p *ClientConnPool) SendToAll(msg []byte) {
 			go func() {
 				sc.mu.Lock()
 				defer sc.mu.Unlock()
+				if sc.Conn == nil {
+					return // connection was closed between check and lock
+				}
 				if err := sc.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 					p.logger.Warn("broadcast write failed", "addr", sc.Addr, "error", err)
 				}

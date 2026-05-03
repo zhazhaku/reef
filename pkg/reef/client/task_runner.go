@@ -149,7 +149,7 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 			rt.Attempts = append(rt.Attempts, record)
 			rt.mu.Unlock()
 			r.memoryRecorder.RecordComplete(rt.TaskID, rt.Instruction, result, rt.RoundsExecuted, record.EndedAt.Sub(record.StartedAt), 0)
-			r.reportCompleted(rt.TaskID, result, record.EndedAt.Sub(record.StartedAt).Milliseconds())
+			r.reportCompleted(rt.TaskID, result, record.EndedAt.Sub(record.StartedAt).Milliseconds(), rt.RoundsExecuted)
 			return
 		}
 
@@ -301,11 +301,12 @@ func (r *TaskRunner) reportProgress(taskID, status string, percent int, message 
 	_ = r.connector.Send(msg)
 }
 
-func (r *TaskRunner) reportCompleted(taskID, result string, execTimeMs int64) {
+func (r *TaskRunner) reportCompleted(taskID, result string, execTimeMs int64, roundsExecuted int) {
 	msg, _ := reef.NewMessage(reef.MsgTaskCompleted, taskID, reef.TaskCompletedPayload{
 		TaskID:          taskID,
 		Result:          map[string]any{"text": result},
 		ExecutionTimeMs: execTimeMs,
+		RoundsExecuted:  roundsExecuted,
 	})
 	_ = r.connector.Send(msg)
 }
