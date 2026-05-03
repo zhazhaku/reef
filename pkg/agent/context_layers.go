@@ -8,10 +8,10 @@ import (
 
 // ContextConfig controls context window budget and compaction behavior.
 type ContextConfig struct {
-	MaxTokens        int     // Total token budget (default 128000)
-	CompactThreshold float64 // Fraction of MaxTokens that triggers compaction (default 0.8 = 80%)
-	MaxWorkingRounds int     // Max rounds to retain in Working layer (default 20)
-	MaxInjections    int     // Max memory injections in L3 (default 5)
+	MaxTokens        int     `json:"max_tokens"`
+	CompactThreshold float64 `json:"compact_threshold"`
+	MaxWorkingRounds int     `json:"max_working_rounds"`
+	MaxInjections    int     `json:"max_injections"`
 }
 
 // DefaultContextConfig returns sensible defaults.
