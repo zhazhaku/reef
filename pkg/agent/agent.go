@@ -26,6 +26,7 @@ import (
 	"github.com/zhazhaku/reef/pkg/providers"
 	"github.com/zhazhaku/reef/pkg/reef"
 	"github.com/zhazhaku/reef/pkg/routing"
+	"github.com/zhazhaku/reef/pkg/safety"
 	"github.com/zhazhaku/reef/pkg/session"
 	"github.com/zhazhaku/reef/pkg/state"
 	"github.com/zhazhaku/reef/pkg/tools"
@@ -561,6 +562,19 @@ func (al *AgentLoop) runAgentLoop(
 	}
 
 	if opts.SendResponse && result.finalContent != "" {
+		// Security: scan and redact PII from output before delivery
+		content := result.finalContent
+		if piiCategory := safety.ScanOutput(content); piiCategory != "" {
+			logger.WarnCF("agent", "PII detected in agent output, redacting",
+				map[string]any{
+					"category":    piiCategory,
+					"agent_id":    agent.ID,
+					"session_key": opts.Dispatch.SessionKey,
+				})
+			redacted, _ := safety.RedactOutput(content)
+			content = redacted
+		}
+
 		agentID, sessionKey, scope := outboundTurnMetadata(
 			agent.ID,
 			opts.Dispatch.SessionKey,
@@ -576,7 +590,7 @@ func (al *AgentLoop) runAgentLoop(
 			AgentID:      agentID,
 			SessionKey:   sessionKey,
 			Scope:        scope,
-			Content:      result.finalContent,
+			Content:      content,
 			ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
 		})
 	}

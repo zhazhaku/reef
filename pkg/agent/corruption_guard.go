@@ -7,8 +7,8 @@ import (
 
 // CorruptionConfig holds thresholds for corruption detection.
 type CorruptionConfig struct {
-	LoopThreshold  int // consecutive same-tool calls before flagging (default 5)
-	BlankThreshold int // consecutive empty rounds before flagging (default 3)
+	LoopThreshold  int `json:"loop_threshold"`  // consecutive same-tool calls before flagging (default 5)
+	BlankThreshold int `json:"blank_threshold"` // consecutive empty rounds before flagging (default 3)
 }
 
 // DefaultCorruptionConfig returns sensible defaults.

@@ -407,6 +407,13 @@ func formatMessagesForLog(messages []providers.Message) string {
 			content := utils.Truncate(msg.Content, 200)
 			fmt.Fprintf(&sb, "  Content: %s\n", content)
 		}
+		if msg.ReasoningContentPresent {
+			fmt.Fprintf(&sb, "  ReasoningContentPresent: true\n")
+			if msg.ReasoningContent != "" {
+				rc := utils.Truncate(msg.ReasoningContent, 200)
+				fmt.Fprintf(&sb, "  ReasoningContent: %s\n", rc)
+			}
+		}
 		if msg.ToolCallID != "" {
 			fmt.Fprintf(&sb, "  ToolCallID: %s\n", msg.ToolCallID)
 		}

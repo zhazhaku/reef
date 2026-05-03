@@ -969,6 +969,18 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		final = append(final, msg)
 	}
 
+	// Third pass: DeepSeek V4 thinking mode requires reasoning_content to be
+	// present on ALL assistant messages. If ReasoningContentPresent was lost
+	// during session JSON round-trip or seahorse bootstrap from legacy data,
+	// force-set it so the downstream SerializeMessages includes the field.
+	// This must happen after the tool-call validation pass above so that we
+	// only patch messages that actually survive into the final output.
+	for i := range final {
+		if final[i].Role == "assistant" && !final[i].ReasoningContentPresent {
+			final[i].ReasoningContentPresent = true
+		}
+	}
+
 	return final
 }
 

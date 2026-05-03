@@ -89,6 +89,18 @@ func NewAgentLoop(
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.hooks = NewHookManager(eventBus)
 	configureHookManagerFromConfig(al.hooks, cfg)
+
+	// Register the dangerous tool approver to require human approval
+	// for destructive/sensitive tool operations (HITL safety layer).
+	// OWASP LLM07/LLM08: Insecure Plugin Design / Excessive Agency.
+	dangerousApprover := NewDangerousToolApprover()
+	_ = al.hooks.Mount(HookRegistration{
+		Name:     "dangerous-tool-approver",
+		Hook:     dangerousApprover,
+		Priority: 50,
+		Source:   HookSourceInProcess,
+	})
+
 	al.contextManager = al.resolveContextManager()
 
 	// Register shared tools to all agents (now that al is created)

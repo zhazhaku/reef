@@ -127,6 +127,7 @@ func (p *Pipeline) CallLLM(
 	logger.DebugCF("agent", "LLM request",
 		map[string]any{
 			"agent_id":          ts.agent.ID,
+			"turn_id":           ts.turnID,
 			"iteration":         iteration,
 			"model":             exec.llmModel,
 			"messages_count":    len(exec.callMessages),
@@ -185,6 +186,7 @@ func (p *Pipeline) CallLLM(
 	// Retry loop
 	var err error
 	maxRetries := 2
+	llmCallStart := time.Now()
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
@@ -408,6 +410,7 @@ func (p *Pipeline) CallLLM(
 
 	llmResponseFields := map[string]any{
 		"agent_id":       ts.agent.ID,
+		"turn_id":        ts.turnID,
 		"iteration":      iteration,
 		"content_chars":  len(exec.response.Content),
 		"tool_calls":     len(exec.response.ToolCalls),
@@ -420,6 +423,7 @@ func (p *Pipeline) CallLLM(
 		llmResponseFields["completion_tokens"] = exec.response.Usage.CompletionTokens
 		llmResponseFields["total_tokens"] = exec.response.Usage.TotalTokens
 	}
+	llmResponseFields["latency_ms"] = time.Since(llmCallStart).Milliseconds()
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
 	// No-tool-call path: steering check and direct response

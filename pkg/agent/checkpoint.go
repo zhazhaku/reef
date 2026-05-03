@@ -20,10 +20,10 @@ type Checkpoint struct {
 
 // CheckpointConfig defines checkpoint autosave policy.
 type CheckpointConfig struct {
-	Dir        string        // checkpoint storage directory
-	Interval   time.Duration // time-based save interval (default 5 min)
-	MaxRounds  int           // round-based save interval (default 5)
-	MaxCount   int           // max checkpoints to retain, oldest rotated (default 10)
+	Dir        string        `json:"-"`            // checkpoint storage directory (set from task context, not config)
+	Interval   time.Duration `json:"interval_ms"`  // time-based save interval in ms (default 5 min)
+	MaxRounds  int           `json:"max_rounds"`   // round-based save interval (default 5)
+	MaxCount   int           `json:"max_count"`    // max checkpoints to retain, oldest rotated (default 10)
 }
 
 // DefaultCheckpointConfig returns sensible defaults.

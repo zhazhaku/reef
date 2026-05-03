@@ -7,6 +7,7 @@ import (
 
 	"github.com/zhazhaku/reef/pkg/bus"
 	"github.com/zhazhaku/reef/pkg/logger"
+	"github.com/zhazhaku/reef/pkg/safety"
 )
 
 func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMessage) {
@@ -19,6 +20,19 @@ func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMess
 }
 
 func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.InboundMessage) {
+	// Security: scan input for prompt injection patterns
+	if threat := safety.ScanInput(initialMsg.Content); threat != "" {
+		logger.WarnCF("agent", "Prompt injection detected in inbound message",
+			map[string]any{
+				"channel":   initialMsg.Channel,
+				"threat":    threat,
+				"turn_id":   initialMsg.SessionKey,
+			})
+		// Continue processing but log the threat for monitoring
+		// Defense-in-depth: the system prompt hardening and tool access control
+		// provide additional layers of protection.
+	}
+
 	// Process the initial message
 	response, err := al.processMessage(ctx, initialMsg)
 	if err != nil {
