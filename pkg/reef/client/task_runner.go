@@ -26,6 +26,7 @@ type TaskRunner struct {
 	logger         *slog.Logger
 	sandboxDir     string
 	sandboxFactory SandboxFactory
+	memoryRecorder MemoryRecorder
 	maxRounds      int
 }
 
@@ -59,6 +60,7 @@ type TaskRunnerOptions struct {
 	SandboxDir     string         // base directory for task sandboxes
 	SandboxFactory SandboxFactory // factory to create sandboxes (nil = disabled)
 	MaxRounds      int            // max rounds per task (0 = unlimited)
+	MemoryRecorder MemoryRecorder  // episodic memory recorder (nil = nop)
 }
 
 // NewTaskRunner creates a new task runner.
@@ -70,6 +72,9 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 		opts.RetryDelay = time.Second
 	}
 	if opts.Logger == nil {
+	if opts.MemoryRecorder == nil {
+		opts.MemoryRecorder = nopMemoryRecorder{}
+	}
 		opts.Logger = slog.Default()
 	}
 	return &TaskRunner{
@@ -81,6 +86,7 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 		logger:         opts.Logger,
 		sandboxDir:     opts.SandboxDir,
 		sandboxFactory: opts.SandboxFactory,
+		memoryRecorder: opts.MemoryRecorder,
 		maxRounds:      opts.MaxRounds,
 	}
 }
@@ -142,6 +148,7 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 			rt.Result = result
 			rt.Attempts = append(rt.Attempts, record)
 			rt.mu.Unlock()
+			r.memoryRecorder.RecordComplete(rt.TaskID, rt.Instruction, result, rt.RoundsExecuted, record.EndedAt.Sub(record.StartedAt), 0)
 			r.reportCompleted(rt.TaskID, result, record.EndedAt.Sub(record.StartedAt).Milliseconds())
 			return
 		}
@@ -179,6 +186,7 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 	rt.Status = "failed"
 	rt.Error = lastErr
 	rt.mu.Unlock()
+	r.memoryRecorder.RecordFailed(rt.TaskID, rt.Instruction, lastErr.Error(), rt.RoundsExecuted, len(rt.Attempts), 0)
 	r.reportFailed(rt.TaskID, lastErr, rt.Attempts)
 }
 
