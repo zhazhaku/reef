@@ -1,8 +1,9 @@
 # Reef 项目第三次审计 — 源码与规划对齐报告
 
-> 审计日期：2026-05-03
+> 审计日期：2026-05-03 (ver 1.1 — 深度补充)
 > 范围：openspec 设计文档 vs. 实际源码实现
 > 方法：逐规格比对、测试覆盖率扫描、集成完整性检查
+> 补充分析：双代码库对比、跨包引用分析、启动路径追踪
 
 ---
 
@@ -10,9 +11,9 @@
 
 ```
 已覆盖规范: ~78%  (比首次审计 +10%)
-严重问题: 7  (P0)
-功能缺口: 7  (P1)
-待完善项: 8  (P2)
+严重问题: 9  (P0) — 其中 2 个为架构级差距
+功能缺口: 9  (P1)
+待完善项: 9  (P2)
 琐碎问题: 5  (P3)
 测试编译失败: 3 文件
 
@@ -67,6 +68,36 @@
 - **影响**: 新 Client 不知道之前失败的尝试，可能重复相同错误
 - **位置**: `pkg/reef/protocol.go:133`
 
+### P0-8: 双代码库存在架构鸿沟（🆕 v1.1 补充）
+- **规范要求**: 设计文档定义统一代码库，所有组件可互操作
+- **实际实现**: 两套独立的 `pkg/reef/` 实现并存，功能不对称：
+
+```
+reef (主仓库, sipeed)          picoclaw (zhazhaku)
+═══════════════════════        ═══════════════════════
+28 个 Go 文件                  50+ 个 Go 文件
+├── raft/ ✅ (主仓库独有)       ├── raft/ ❌ 不存在
+├── evolution/ (仅类型定义)     ├── evolution/ (完整GEP管道)
+│                              │   ├── client/ 5个文件
+│                              │   └── server/ 5个文件
+├── server/ (7文件)             ├── server/ (34文件)
+│   └── 内存队列               │   ├── SQLite持久化
+│                              │   ├── 优先级队列
+│                              │   ├── DAG引擎
+│                              │   ├── TLS支持
+│                              │   ├── 通知系统(6通道)
+│                              │   └── 结果回传
+└── cmd/ (基本stub)             └── cmd/ (cobra CLI)
+```
+- **影响**: Raft 共识层仅存在于主仓库，进化引擎管道仅存在于 picoclaw，两者**无法直接互操作**。双轨并行增加维护成本
+- **修复**: 决定合并策略 — 以 picoclaw 为完整实现，删除主仓库重复文件；或将 Raft 层移植到 picoclaw
+
+### P0-9: SkillsLoader 在任何代码库中均不存在（🆕 v1.1 补充）
+- **规范要求**: ROLE-01 — "Client 启动时根据 `skills/roles/<role>.yaml` 清单过滤 SkillsLoader"
+- **实际实现**: `pkg/reef/role/role.go` 仅完成 YAML 解析。两仓库中搜索 `SkillsLoader` / `skillsLoader` / `SkillLoader` 均为零结果
+- **影响**: 角色到技能的自动映射完全缺失。Agent 只能通过 `--skills` 手动标志指定技能，无法按角色自动加载
+- **修复**: 实现 SkillsLoader，读取 YAML → 过滤 `picoclaw/pkg/skills/` → 注入 AgentLoop
+
 ---
 
 ## 三、P1（高）— 功能缺口
@@ -108,6 +139,18 @@
 - 无过期机制，无上限
 - `websocket.go` 中 picoClaw 版本的 `pendingControls`
 
+### P1-8: AgentLoop 未集成到 SwarmChannel（🆕 v1.1 补充）
+- **规范要求**: openspec TaskRunner 应拦截 `TurnStart` 注入 TaskContext，Hook 系统应连接 SwarmChannel 与 AgentLoop
+- **实际实现**: `picoclaw/pkg/agent/hooks.go` 实现了 HookManager，但**无任何代码将 SwarmChannel 的 task_dispatch 事件连接到此 Hook 系统**。SwarmChannel 仅将 server 消息转换为 `bus.Message`，不调用 AgentLoop 的 Hook
+- **影响**: TaskContext 无法注入到真实 Agent 执行上下文。任务生命周期（cancel/pause/resume）仅在 TaskRunner 层面生效，无法控制实际 LLM 推理
+- **位置**: `picoclaw/pkg/channels/swarm/swarm.go` → 缺少 AgentLoop Hook 注册点
+
+### P1-9: Raft 与进化引擎之间无集成点（🆕 v1.1 补充）
+- **规范要求**: Phase 7 联邦化中基因提交应通过 Raft 共识
+- **实际实现**: Raft FSM 位于 `pkg/reef/raft/types.go`（主仓库），进化引擎位于 `picoclaw/pkg/reef/evolution/client/evolver.go`。evolver 通过 WebSocket 直接发送 `gene_submit` — **此路径不经过 Raft 共识**
+- **影响**: 多节点部署时基因状态可能不一致。Leader 切换后 gene_approved 事件可能丢失
+- **修复**: 将基因提交路由到 LeaderedServer.ProposeRaftCommand()，由 FSM.Apply() 处理
+
 ---
 
 ## 四、P2（中）— 完整性与健壮性
@@ -122,6 +165,7 @@
 | P2-6 | 重试不区分可恢复/不可恢复错误 | task_runner.go | 🟡 |
 | P2-7 | 心跳间隔规范 30s，实现 10s | connector.go | 🟢 |
 | P2-8 | 进化引擎消息路由 Handler 缺失或为存根 | evolution/server/ | 🟡 |
+| P2-9 | CNPContextManager 已注册但启动路径未读取 `context_manager: "cnp"` 配置（🆕） | `config.json`→`NewAgentInstance` 链路 | 🟡 |
 
 ---
 
@@ -207,10 +251,10 @@ pkg/reef/raft/ — 依赖问题
 
 ## 八、总结
 
-**核心问题**：设计规范与代码实现之间存在约 20 个已识别的差距。最关键的 7 个 P0 问题涉及协议一致性（消息信封、错误类型、心跳）和执行正确性（状态转换、断连处理、进度报告、重试信息传递）。
+**核心问题**：设计规范与代码实现之间存在 **32 个**已识别的差距。最关键的 9 个 P0 问题涉及协议一致性（消息信封、错误类型、心跳）、执行正确性（状态转换、断连处理、进度报告、重试信息传递）、**架构鸿沟**（双代码库互不连通）和**基础设施缺失**（SkillsLoader）。
 
 **好消息**：P8 认知架构的集成工作（W5+W6）解决了首次审计发现的 7 个问题中的 6 个。功能代码质量高（TDD 全面、覆盖率 88-100%）。
 
-**坏消息**：两套代码库（sipeed/reef 主仓库 vs picoclaw 子目录）的共存继续造成类型、导入路径和安全模型的不一致。
+**坏消息**：两套代码库（sipeed/reef 主仓库 vs picoclaw 子目录）的共存造成类型/导入路径/安全模型的不一致，且**Raft 和进化引擎完全隔离**。
 
-**下一步建议**：先修复 5 个 30 分钟级 P0/P2/P3 错误（状态机、心跳、CLI 路由、测试编译、MsgError），然后推进断连处理和 Admin 控制端点的实现。
+**下一步建议**：先修复 5 个 30 分钟级 P0/P2/P3 错误（状态机、心跳、CLI 路由、测试编译、MsgError），然后推进断连处理和 Admin 控制端点的实现。P0-8/P0-9 是架构决策级，需要整体讨论。
