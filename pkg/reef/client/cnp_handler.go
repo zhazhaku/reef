@@ -3,7 +3,7 @@ package client
 import (
 	"fmt"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // CNPHandler handles CNP messages on the client side.

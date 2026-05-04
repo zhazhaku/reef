@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // TestConnectorClaimMessages verifies that task_available and task_claimed

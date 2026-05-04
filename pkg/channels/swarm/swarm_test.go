@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/bus"
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestHandleServerMessage_TaskDispatch(t *testing.T) {

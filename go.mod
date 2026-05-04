@@ -1,4 +1,4 @@
-module github.com/sipeed/reef
+module github.com/zhazhaku/reef
 
 go 1.26.2
 

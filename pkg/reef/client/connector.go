@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sipeed/reef/pkg/reef"
-	"github.com/sipeed/reef/pkg/reef/raft"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/raft"
 )
 
 // Connector manages the WebSocket connection to a Reef Server.

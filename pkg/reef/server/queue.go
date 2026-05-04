@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 var ErrQueueFull = errors.New("task queue is full")

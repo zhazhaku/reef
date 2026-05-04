@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 // ---------------------------------------------------------------------------

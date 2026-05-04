@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 	bolt "go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3/raftpb"
 )

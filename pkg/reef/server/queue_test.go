@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestTaskQueue_EnqueueDequeue(t *testing.T) {

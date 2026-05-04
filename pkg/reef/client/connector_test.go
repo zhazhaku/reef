@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestBackoff_NextReset(t *testing.T) {

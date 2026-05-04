@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
-	evserver "github.com/sipeed/reef/pkg/reef/evolution/server"
+	"github.com/zhazhaku/reef/pkg/reef"
+	evserver "github.com/zhazhaku/reef/pkg/reef/evolution/server"
 )
 
 // TestSchedulerWithClaimBoard verifies routing through ClaimBoard

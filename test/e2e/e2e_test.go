@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
-	"github.com/sipeed/reef/pkg/reef/server"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/server"
 )
 
 // TestE2E_TwoClients_DifferentRoles verifies that tasks are routed to

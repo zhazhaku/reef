@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
-	evserver "github.com/sipeed/reef/pkg/reef/evolution/server"
+	"github.com/zhazhaku/reef/pkg/reef"
+	evserver "github.com/zhazhaku/reef/pkg/reef/evolution/server"
 )
 
 // Scheduler matches tasks to available Clients and handles dispatch.

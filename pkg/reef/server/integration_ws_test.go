@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sipeed/reef/pkg/reef"
-	"github.com/sipeed/reef/pkg/reef/evolution"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/evolution"
 )
 
 // ---------------------------------------------------------------------------

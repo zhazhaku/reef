@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/reef/pkg/bus"
-	"github.com/sipeed/reef/pkg/reef"
-	"github.com/sipeed/reef/pkg/reef/client"
-	"github.com/sipeed/reef/pkg/reef/raft"
+	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/client"
+	"github.com/zhazhaku/reef/pkg/reef/raft"
 )
 
 // SwarmChannel bridges PicoClaw's MessageBus with Reef's WebSocket protocol.

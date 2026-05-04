@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
-	"github.com/sipeed/reef/pkg/reef/raft"
+	"github.com/zhazhaku/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef/raft"
 )
 
 func poolCfg(addrs ...string) raft.PoolConfig {

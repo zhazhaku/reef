@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/reef/pkg/reef"
+	"github.com/zhazhaku/reef/pkg/reef"
 )
 
 func TestConnector_LeaderAddr_NotConnected(t *testing.T) {
