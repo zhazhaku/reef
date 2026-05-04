@@ -29,17 +29,17 @@ const (
 	MsgControlAck    MessageType = "control_ack"
 
 	// Phase 6: Evolution Engine messages
-	MsgGeneSubmit    MessageType = "gene_submit"
-	MsgGeneApproved  MessageType = "gene_approved"
-	MsgGeneRejected  MessageType = "gene_rejected"
-	MsgGeneBroadcast MessageType = "gene_broadcast"
+	MsgGeneSubmit          MessageType = "gene_submit"
+	MsgGeneApproved        MessageType = "gene_approved"
+	MsgGeneRejected        MessageType = "gene_rejected"
+	MsgGeneBroadcast       MessageType = "gene_broadcast"
+	MsgSkillDraftProposed  MessageType = "skill_draft_proposed"
+	MsgTaskClaim           MessageType = "task_claim"
+	MsgTaskAvailable       MessageType = "task_available"
+	MsgTaskClaimed         MessageType = "task_claimed"
+	MsgTaskBlock           MessageType = "task_block"
 
-	// Phase 6 — Claim Board messages
-	MsgTaskAvailable MessageType = "task_available"
-	MsgTaskClaimed   MessageType = "task_claimed"
-	MsgTaskClaim     MessageType = "task_claim"
-
-	// Phase 7 — Federation messages
+	// Phase 7: Raft messages
 	MsgRaftLeaderChange MessageType = "raft_leader_change"
 )
 
@@ -48,13 +48,14 @@ func (mt MessageType) IsValid() bool {
 	switch mt {
 	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
-		MsgCancel, MsgPause, MsgResume, MsgControlAck,
-		// Phase 6: Evolution Engine messages
-		MsgGeneSubmit, MsgGeneApproved, MsgGeneRejected, MsgGeneBroadcast,
-		// Phase 6 — Claim Board messages
-		MsgTaskAvailable, MsgTaskClaimed, MsgTaskClaim,
-		// Phase 7 — Federation messages
-		MsgRaftLeaderChange:
+		MsgCancel, MsgPause, MsgResume, MsgControlAck:
+		return true
+	// Phase 6: Evolution Engine messages
+	case MsgGeneSubmit, MsgGeneApproved, MsgGeneRejected, MsgGeneBroadcast,
+		MsgSkillDraftProposed, MsgTaskClaim, MsgTaskAvailable, MsgTaskClaimed, MsgTaskBlock:
+		return true
+	// Phase 7: Raft messages
+	case MsgRaftLeaderChange:
 		return true
 	}
 	return false
@@ -138,7 +139,9 @@ type TaskDispatchPayload struct {
 	RequiredSkills []string          `json:"required_skills,omitempty"`
 	MaxRetries     int               `json:"max_retries"`
 	TimeoutMs      int64             `json:"timeout_ms"`
+	ModelHint      string            `json:"model_hint,omitempty"`
 	CreatedAt      int64             `json:"created_at"`
+	ReplyTo        *ReplyToContext   `json:"reply_to,omitempty"`
 }
 
 // TaskProgressPayload is sent by Client to report task execution progress.
@@ -152,13 +155,10 @@ type TaskProgressPayload struct {
 
 // TaskCompletedPayload is sent by Client when a task finishes successfully.
 type TaskCompletedPayload struct {
-	TaskID              string         `json:"task_id"`
-	Result              map[string]any `json:"result"`
-	ExecutionTimeMs     int64          `json:"execution_time_ms"`
-	Timestamp           int64          `json:"timestamp"`
-	RoundsExecuted      int            `json:"rounds_executed,omitempty"`
-	CorruptionsDetected int            `json:"corruptions_detected,omitempty"`
-	WorkingSummary      string         `json:"working_summary,omitempty"`
+	TaskID           string         `json:"task_id"`
+	Result           map[string]any `json:"result"`
+	ExecutionTimeMs  int64          `json:"execution_time_ms"`
+	Timestamp        int64          `json:"timestamp"`
 }
 
 // TaskFailedPayload is sent by Client when a task fails permanently.
@@ -169,7 +169,6 @@ type TaskFailedPayload struct {
 	ErrorDetail     string          `json:"error_detail,omitempty"`
 	AttemptHistory  []AttemptRecord `json:"attempt_history"`
 	Timestamp       int64           `json:"timestamp"`
-	RoundsExecuted  int             `json:"rounds_executed,omitempty"`
 }
 
 // ControlPayload is used for cancel/pause/resume control messages.
@@ -185,38 +184,7 @@ type ControlAckPayload struct {
 	Timestamp   int64  `json:"timestamp"`
 }
 
-// ---------------------------------------------------------------------------
-// Phase 6 — Claim Board payloads
-// ---------------------------------------------------------------------------
-
-// TaskAvailablePayload is sent by Server to eligible clients when a task
-// is posted on the claim board.
-type TaskAvailablePayload struct {
-	TaskID         string   `json:"task_id"`
-	RequiredRole   string   `json:"required_role"`
-	RequiredSkills []string `json:"required_skills,omitempty"`
-	Priority       int      `json:"priority"`
-	Instruction    string   `json:"instruction"`    // first 200 chars
-	ExpiresAt      int64    `json:"expires_at"`     // Unix milliseconds
-}
-
-// TaskClaimedPayload is sent by Server to other candidates when a task
-// on the claim board is claimed by a client.
-type TaskClaimedPayload struct {
-	TaskID    string `json:"task_id"`
-	ClaimedBy string `json:"claimed_by"`
-	ClaimedAt int64  `json:"claimed_at"` // Unix milliseconds
-}
-
-// TaskClaimPayload is sent by Client to claim a task on the claim board.
-type TaskClaimPayload struct {
-	TaskID   string `json:"task_id"`
-	ClientID string `json:"client_id"`
-}
-
-// ---------------------------------------------------------------------------
-// Phase 6 — Evolution payloads
-// ---------------------------------------------------------------------------
+// ---- Phase 6-7: Evolution + Raft Payloads ----
 
 // GeneSubmitPayload is sent by Client to submit a gene for evolution approval.
 type GeneSubmitPayload struct {
@@ -251,38 +219,186 @@ type GeneBroadcastPayload struct {
 	BroadcastBy    string          `json:"broadcast_by"`
 }
 
-// ---------------------------------------------------------------------------
-// Phase 7 — Federation payloads
-// ---------------------------------------------------------------------------
-
-// RaftLeaderChangePayload is sent by the Raft cluster to all connected clients
-// when a new Leader is elected. Clients use this to update their connection pool.
-type RaftLeaderChangePayload struct {
-	NewLeaderAddr string `json:"new_leader_addr"` // WebSocket address of the new Leader
-	NewLeaderID   string `json:"new_leader_id"`   // Raft node ID of the new Leader
-	OldLeaderAddr string `json:"old_leader_addr"` // Previous Leader address (empty on first election)
-	OldLeaderID   string `json:"old_leader_id"`   // Previous Leader ID (empty on first election)
-	Term          uint64 `json:"term"`            // Raft term number
-	Timestamp     int64  `json:"timestamp"`       // Unix milliseconds when the change occurred
+// SkillDraftProposedPayload is sent when a skill draft is proposed from merged genes.
+type SkillDraftProposedPayload struct {
+	DraftID   string `json:"draft_id"`
+	Role      string `json:"role"`
+	SkillName string `json:"skill_name"`
+	GeneCount int    `json:"gene_count"`
+	Timestamp int64  `json:"timestamp"`
 }
 
-// NewRaftLeaderChangeMessage creates a properly typed Message with the
-// RaftLeaderChange payload.
-func NewRaftLeaderChangeMessage(newAddr, newID, oldAddr, oldID string, term uint64) Message {
-	payload := RaftLeaderChangePayload{
-		NewLeaderAddr: newAddr,
-		NewLeaderID:   newID,
-		OldLeaderAddr: oldAddr,
-		OldLeaderID:   oldID,
-		Term:          term,
-		Timestamp:     time.Now().UnixMilli(),
+// TaskClaimPayload is sent by Client to claim a task.
+type TaskClaimPayload struct {
+	TaskID    string `json:"task_id"`
+	ClientID  string `json:"client_id"`
+	Role      string `json:"role"`
+	ClaimedAt int64  `json:"claimed_at"`
+}
+
+// TaskAvailablePayload is sent by Server to announce an available task.
+type TaskAvailablePayload struct {
+	TaskID         string   `json:"task_id"`
+	RequiredRole   string   `json:"required_role"`
+	RequiredSkills []string `json:"required_skills"`
+	Priority       int      `json:"priority"`
+	Instruction    string   `json:"instruction"` // first 200 chars summary
+	ExpiresAt      int64    `json:"expires_at"`  // Unix millis
+}
+
+// TaskClaimedPayload is sent by Server to confirm a task has been claimed.
+type TaskClaimedPayload struct {
+	TaskID    string `json:"task_id"`
+	ClaimedBy string `json:"claimed_by"`
+	ClaimedAt int64  `json:"claimed_at"`
+}
+
+// TaskBlockPayload is sent by Client to report a blocking condition.
+type TaskBlockPayload struct {
+	TaskID    string `json:"task_id"`
+	ClientID  string `json:"client_id"`
+	BlockType string `json:"block_type"` // "tool_error", "context_corruption", "resource_unavailable"
+	Message   string `json:"message"`
+	Context   string `json:"context"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// RaftLeaderChangePayload is sent when the Raft cluster leadership changes.
+type RaftLeaderChangePayload struct {
+	NewLeaderID   string `json:"new_leader_id"`
+	NewLeaderAddr string `json:"new_leader_addr"`
+	OldLeaderID   string `json:"old_leader_id,omitempty"`
+	OldLeaderAddr string `json:"old_leader_addr,omitempty"`
+	Term          uint64 `json:"term"`
+	Timestamp     int64  `json:"timestamp"`
+}
+
+// ---- Validate methods for Phase 6-7 Payloads ----
+
+func (p GeneSubmitPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
 	}
-	payloadBytes, _ := json.Marshal(payload)
-	return Message{
-		MsgType:   MsgRaftLeaderChange,
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   payloadBytes,
+	if len(p.GeneData) <= 2 {
+		return fmt.Errorf("gene_data must be non-empty valid JSON")
 	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	return nil
+}
+
+func (p GeneApprovedPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	return nil
+}
+
+func (p GeneRejectedPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	if p.Reason == "" {
+		return fmt.Errorf("reason is required")
+	}
+	if p.Layer < 1 || p.Layer > 3 {
+		return fmt.Errorf("layer must be 1, 2, or 3")
+	}
+	return nil
+}
+
+func (p GeneBroadcastPayload) Validate() error {
+	if p.GeneID == "" {
+		return fmt.Errorf("gene_id is required")
+	}
+	if len(p.GeneData) == 0 {
+		return fmt.Errorf("gene_data must be non-empty")
+	}
+	if p.SourceClientID == "" {
+		return fmt.Errorf("source_client_id is required")
+	}
+	return nil
+}
+
+func (p SkillDraftProposedPayload) Validate() error {
+	if p.DraftID == "" {
+		return fmt.Errorf("draft_id is required")
+	}
+	if p.Role == "" {
+		return fmt.Errorf("role is required")
+	}
+	if p.SkillName == "" {
+		return fmt.Errorf("skill_name is required")
+	}
+	if p.GeneCount <= 0 {
+		return fmt.Errorf("gene_count must be greater than 0")
+	}
+	return nil
+}
+
+func (p TaskClaimPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	return nil
+}
+
+func (p TaskAvailablePayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.RequiredRole == "" {
+		return fmt.Errorf("required_role is required")
+	}
+	if p.Priority < 1 || p.Priority > 10 {
+		return fmt.Errorf("priority must be between 1 and 10")
+	}
+	if p.ExpiresAt <= 0 {
+		return fmt.Errorf("expires_at must be positive")
+	}
+	return nil
+}
+
+func (p TaskClaimedPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClaimedBy == "" {
+		return fmt.Errorf("claimed_by is required")
+	}
+	return nil
+}
+
+func (p TaskBlockPayload) Validate() error {
+	if p.TaskID == "" {
+		return fmt.Errorf("task_id is required")
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("client_id is required")
+	}
+	switch p.BlockType {
+	case "tool_error", "context_corruption", "resource_unavailable":
+		return nil
+	default:
+		return fmt.Errorf("block_type must be one of: tool_error, context_corruption, resource_unavailable")
+	}
+}
+
+func (p RaftLeaderChangePayload) Validate() error {
+	if p.NewLeaderID == "" {
+		return fmt.Errorf("new_leader_id is required")
+	}
+	if p.NewLeaderAddr == "" {
+		return fmt.Errorf("new_leader_addr is required")
+	}
+	if p.Term <= 0 {
+		return fmt.Errorf("term must be positive")
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -295,4 +411,18 @@ func ValidateProtocolVersion(v string) error {
 		return fmt.Errorf("unsupported protocol version %q (expected %s)", v, ProtocolVersion)
 	}
 	return nil
+}
+
+// NewRaftLeaderChangeMessage creates a raft_leader_change message.
+func NewRaftLeaderChangeMessage(newAddr, newID, oldAddr, oldID string, term uint64) Message {
+	payload := RaftLeaderChangePayload{
+		NewLeaderAddr: newAddr,
+		NewLeaderID:   newID,
+		OldLeaderAddr: oldAddr,
+		OldLeaderID:   oldID,
+		Term:          term,
+		Timestamp:     time.Now().UnixMilli(),
+	}
+	msg, _ := NewMessage(MsgRaftLeaderChange, "", payload)
+	return msg
 }

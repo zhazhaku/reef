@@ -2,16 +2,19 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/zhazhaku/reef/pkg/reef"
-	"github.com/zhazhaku/reef/pkg/reef/raft"
 )
 
 // Connector manages the WebSocket connection to a Reef Server.
@@ -23,6 +26,7 @@ type Connector struct {
 	skills      []string
 	providers   []string
 	capacity    int
+	opts        ConnectorOptions
 
 	conn      *websocket.Conn
 	mu        sync.Mutex
@@ -30,17 +34,18 @@ type Connector struct {
 	msgInCh   chan reef.Message // messages received from server
 	closed    bool
 
-	backoff          *Backoff
-	heartbeatInterval time.Duration
-	logger           *slog.Logger
+	backoff            *Backoff
+	heartbeatInterval  time.Duration
+	logger             *slog.Logger
 
-	// Phase 6 — Claim Board callbacks
-	onTaskAvailable func(reef.TaskAvailablePayload)
-	onTaskClaimed   func(reef.TaskClaimedPayload)
+	// reconnectCallbacks are invoked (each in its own goroutine) after
+	// a successful reconnection, receiving the new *websocket.Conn.
+	reconnectCallbacks []func(conn *websocket.Conn)
+	rcbMu              sync.Mutex
 
-	// Phase 7 — Federation: multi-server pool
-	pool       *raft.ClientConnPool // nil in single-address mode
-	poolActive bool
+	// onGeneBroadcast is called when a gene_broadcast message is received
+	// from the server. The callback receives the parsed payload.
+	onGeneBroadcast func(reef.GeneBroadcastPayload)
 }
 
 // ConnectorOptions configures a new Connector.
@@ -54,9 +59,13 @@ type ConnectorOptions struct {
 	Capacity          int
 	HeartbeatInterval time.Duration
 	Logger            *slog.Logger
+	TLSCertFile       string // Client certificate (optional, for mutual TLS)
+	TLSKeyFile        string // Client key (optional, for mutual TLS)
+	TLSCAFile         string // Custom CA certificate (for self-signed servers)
+	TLSSkipVerify     bool   // Skip certificate verification (dev only)
 }
 
-// NewConnector creates a new WebSocket connector (single-server mode).
+// NewConnector creates a new WebSocket connector.
 func NewConnector(opts ConnectorOptions) *Connector {
 	if opts.Capacity <= 0 {
 		opts.Capacity = 1
@@ -75,58 +84,17 @@ func NewConnector(opts ConnectorOptions) *Connector {
 		skills:            opts.Skills,
 		providers:         opts.Providers,
 		capacity:          opts.Capacity,
+		opts:              opts,
 		sendCh:            make(chan reef.Message, 64),
 		msgInCh:           make(chan reef.Message, 16),
 		backoff:           NewBackoff(1*time.Second, 60*time.Second),
 		heartbeatInterval: opts.HeartbeatInterval,
 		logger:            opts.Logger,
 	}
-}
-
-// NewPoolConnector creates a Connector backed by a multi-server ClientConnPool.
-// The pool manages connections to all configured servers, auto-detects the
-// leader via raft_leader_change messages, and routes Send() to the leader.
-// Pass the same ConnectorOptions as NewConnector; the ServerURL field is ignored
-// in favor of the pool config.
-func NewPoolConnector(opts ConnectorOptions, poolCfg raft.PoolConfig) (*Connector, error) {
-	if opts.Capacity <= 0 {
-		opts.Capacity = 1
-	}
-	if opts.HeartbeatInterval <= 0 {
-		opts.HeartbeatInterval = 10 * time.Second
-	}
-	if opts.Logger == nil {
-		opts.Logger = slog.Default()
-	}
-
-	pool, err := raft.NewClientConnPool(poolCfg, opts.Logger)
-	if err != nil {
-		return nil, fmt.Errorf("create pool: %w", err)
-	}
-
-	return &Connector{
-		token:             opts.Token,
-		clientID:          opts.ClientID,
-		role:              opts.Role,
-		skills:            opts.Skills,
-		providers:         opts.Providers,
-		capacity:          opts.Capacity,
-		sendCh:            make(chan reef.Message, 64),
-		msgInCh:           make(chan reef.Message, 16),
-		backoff:           NewBackoff(1*time.Second, 60*time.Second),
-		heartbeatInterval: opts.HeartbeatInterval,
-		logger:            opts.Logger,
-		pool:              pool,
-	}, nil
 }
 
 // Connect establishes the WebSocket connection and starts background loops.
-// In pool mode, starts all pool connections and a pool-receive relay goroutine.
-// In single-address mode, dials and registers with the server.
 func (c *Connector) Connect(ctx context.Context) error {
-	if c.pool != nil {
-		return c.connectPool(ctx)
-	}
 	if err := c.dialAndRegister(ctx); err != nil {
 		return err
 	}
@@ -137,73 +105,10 @@ func (c *Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *Connector) connectPool(ctx context.Context) error {
-	c.pool.Start()
-	c.poolActive = true
-
-	// Relay goroutine: pool.Receive() → msgInCh
-	go c.poolRelayLoop(ctx)
-
-	return nil
-}
-
-// poolRelayLoop forwards messages from the pool's Receive channel into msgInCh.
-func (c *Connector) poolRelayLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case rm, ok := <-c.pool.Receive():
-			if !ok {
-				return
-			}
-			var msg reef.Message
-			if err := json.Unmarshal(rm.Data, &msg); err != nil {
-				c.logger.Warn("pool unmarshal", "addr", rm.Addr, "error", err)
-				continue
-			}
-			if !msg.MsgType.IsValid() {
-				continue
-			}
-
-			// Handle claim board callbacks
-			switch msg.MsgType {
-			case reef.MsgTaskAvailable:
-				var payload reef.TaskAvailablePayload
-				if err := msg.DecodePayload(&payload); err == nil {
-					c.mu.Lock()
-					cb := c.onTaskAvailable
-					c.mu.Unlock()
-					if cb != nil {
-						go cb(payload)
-					}
-				}
-			case reef.MsgTaskClaimed:
-				var payload reef.TaskClaimedPayload
-				if err := msg.DecodePayload(&payload); err == nil {
-					c.mu.Lock()
-					cb := c.onTaskClaimed
-					c.mu.Unlock()
-					if cb != nil {
-						go cb(payload)
-					}
-				}
-			}
-
-			select {
-			case c.msgInCh <- msg:
-			default:
-				c.logger.Warn("incoming message dropped, buffer full")
-			}
-		}
-	}
-}
-
 // Messages returns the channel of incoming server messages.
 func (c *Connector) Messages() <-chan reef.Message { return c.msgInCh }
 
 // Send queues a message for transmission to the server.
-// In pool mode, sends to the current leader.
 func (c *Connector) Send(msg reef.Message) error {
 	c.mu.Lock()
 	if c.closed {
@@ -211,15 +116,6 @@ func (c *Connector) Send(msg reef.Message) error {
 		return fmt.Errorf("connector closed")
 	}
 	c.mu.Unlock()
-
-	if c.poolActive {
-		data, err := json.Marshal(msg)
-		if err != nil {
-			return fmt.Errorf("marshal: %w", err)
-		}
-		return c.pool.SendToLeader(data)
-	}
-
 	select {
 	case c.sendCh <- msg:
 		return nil
@@ -228,76 +124,72 @@ func (c *Connector) Send(msg reef.Message) error {
 	}
 }
 
+// ClientID returns the configured client ID.
+func (c *Connector) ClientID() string { return c.clientID }
+
+// Role returns the configured role.
+func (c *Connector) Role() string { return c.role }
+
+// ServerURL returns the configured server URL.
+func (c *Connector) ServerURL() string { return c.serverURL }
+
+// WSConn returns the current WebSocket connection (read-locked).
+// Returns nil if not connected.
+func (c *Connector) WSConn() *websocket.Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn
+}
+
+// OnReconnect registers a callback that is invoked after each successful
+// reconnection. The callback receives the new *websocket.Conn and runs in
+// its own goroutine so it cannot block the Connector's reconnect loop.
+func (c *Connector) OnReconnect(cb func(conn *websocket.Conn)) {
+	c.rcbMu.Lock()
+	defer c.rcbMu.Unlock()
+	c.reconnectCallbacks = append(c.reconnectCallbacks, cb)
+}
+
+// fireReconnectCallbacks invokes all registered reconnect callbacks,
+// each in its own goroutine.
+func (c *Connector) fireReconnectCallbacks(conn *websocket.Conn) {
+	c.rcbMu.Lock()
+	cbs := make([]func(conn *websocket.Conn), len(c.reconnectCallbacks))
+	copy(cbs, c.reconnectCallbacks)
+	c.rcbMu.Unlock()
+
+	for _, cb := range cbs {
+		go func(fn func(conn *websocket.Conn)) {
+			defer func() {
+				if r := recover(); r != nil {
+					c.logger.Error("reconnect callback panicked",
+						slog.Any("panic", r))
+				}
+			}()
+			fn(conn)
+		}(cb)
+	}
+}
+
+// SetOnGeneBroadcast registers a callback for gene_broadcast messages.
+// The callback is invoked in its own goroutine when a gene_broadcast
+// message is received from the server.
+func (c *Connector) SetOnGeneBroadcast(cb func(reef.GeneBroadcastPayload)) {
+	c.onGeneBroadcast = cb
+}
+
 // Close shuts down the connector.
 func (c *Connector) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	conn := c.conn
-	poolActive := c.poolActive
 	c.mu.Unlock()
-
-	if poolActive {
-		c.pool.Stop()
-		c.poolActive = false
-	}
 	if conn != nil {
 		conn.Close()
 	}
 	close(c.sendCh)
 	close(c.msgInCh)
 	return nil
-}
-
-// SendToAll broadcasts a message to all connected servers.
-// In single-server mode, falls back to Send.
-func (c *Connector) SendToAll(msg reef.Message) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("connector closed")
-	}
-	c.mu.Unlock()
-
-	if c.poolActive {
-		data, err := json.Marshal(msg)
-		if err != nil {
-			return fmt.Errorf("marshal: %w", err)
-		}
-		c.pool.SendToAll(data)
-		return nil
-	}
-	return c.Send(msg) // fallback: send to single server
-}
-
-// LeaderAddr returns the current leader's address.
-// In pool mode, returns the detected leader address; in single-server mode,
-// returns the configured server URL.
-func (c *Connector) LeaderAddr() string {
-	if c.poolActive {
-		return c.pool.LeaderAddr()
-	}
-	return c.serverURL
-}
-
-// Pool returns the underlying ClientConnPool, or nil if not in pool mode.
-func (c *Connector) Pool() *raft.ClientConnPool {
-	return c.pool
-}
-
-// SetOnTaskAvailable sets the callback invoked when a task_available message is received.
-// The callback is called from a goroutine to avoid blocking the message loop.
-func (c *Connector) SetOnTaskAvailable(fn func(reef.TaskAvailablePayload)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.onTaskAvailable = fn
-}
-
-// SetOnTaskClaimed sets the callback invoked when a task_claimed message is received.
-// The callback is called from a goroutine to avoid blocking the message loop.
-func (c *Connector) SetOnTaskClaimed(fn func(reef.TaskClaimedPayload)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.onTaskClaimed = fn
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +202,41 @@ func (c *Connector) dialAndRegister(ctx context.Context) error {
 		header.Set("x-reef-token", c.token)
 	}
 
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// Configure TLS for wss:// connections
+	if strings.HasPrefix(c.serverURL, "wss://") {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: c.opts.TLSSkipVerify,
+		}
+
+		// Load custom CA certificate
+		if c.opts.TLSCAFile != "" {
+			caCert, err := os.ReadFile(c.opts.TLSCAFile)
+			if err != nil {
+				return fmt.Errorf("read CA file: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return fmt.Errorf("failed to parse CA certificate")
+			}
+			tlsCfg.RootCAs = pool
+		}
+
+		// Load client certificate (mutual TLS)
+		if c.opts.TLSCertFile != "" && c.opts.TLSKeyFile != "" {
+			cert, err := tls.LoadX509KeyPair(c.opts.TLSCertFile, c.opts.TLSKeyFile)
+			if err != nil {
+				return fmt.Errorf("load client certificate: %w", err)
+			}
+			tlsCfg.Certificates = []tls.Certificate{cert}
+		}
+
+		dialer.TLSClientConfig = tlsCfg
+	}
+
 	ws, _, err := dialer.DialContext(ctx, c.serverURL, header)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
@@ -379,28 +305,10 @@ func (c *Connector) readLoop(ctx context.Context) {
 			continue
 		}
 
-		// Phase 6 — Claim Board messages go to callbacks (non-blocking goroutines)
-		switch msg.MsgType {
-		case reef.MsgTaskAvailable:
-			var payload reef.TaskAvailablePayload
-			if err := msg.DecodePayload(&payload); err == nil {
-				c.mu.Lock()
-				cb := c.onTaskAvailable
-				c.mu.Unlock()
-				if cb != nil {
-					go cb(payload)
-				}
-			}
-		case reef.MsgTaskClaimed:
-			var payload reef.TaskClaimedPayload
-			if err := msg.DecodePayload(&payload); err == nil {
-				c.mu.Lock()
-				cb := c.onTaskClaimed
-				c.mu.Unlock()
-				if cb != nil {
-					go cb(payload)
-				}
-			}
+		// Handle gene_broadcast messages directly.
+		if msg.MsgType == reef.MsgGeneBroadcast {
+			c.handleGeneBroadcast(msg)
+			continue
 		}
 
 		select {
@@ -408,6 +316,27 @@ func (c *Connector) readLoop(ctx context.Context) {
 		default:
 			c.logger.Warn("incoming message dropped, buffer full")
 		}
+	}
+}
+
+// handleGeneBroadcast processes an incoming gene_broadcast message.
+// It decodes the payload and invokes the registered callback in a goroutine.
+// Exported for testing visibility.
+func (c *Connector) handleGeneBroadcast(msg reef.Message) {
+	var payload reef.GeneBroadcastPayload
+	if err := msg.DecodePayload(&payload); err != nil {
+		c.logger.Error("decode gene_broadcast", slog.String("error", err.Error()))
+		return
+	}
+	// Validate the payload.
+	if err := payload.Validate(); err != nil {
+		c.logger.Warn("invalid gene_broadcast payload", slog.String("error", err.Error()))
+		return
+	}
+	if c.onGeneBroadcast != nil {
+		go c.onGeneBroadcast(payload)
+	} else {
+		c.logger.Debug("gene_broadcast received but no handler registered")
 	}
 }
 
@@ -476,6 +405,13 @@ func (c *Connector) reconnectLoop(ctx context.Context) {
 					c.triggerReconnect()
 				} else {
 					c.logger.Info("reconnected successfully")
+					// Fire reconnect callbacks with the new connection
+					c.mu.Lock()
+					newConn := c.conn
+					c.mu.Unlock()
+					if newConn != nil {
+						c.fireReconnectCallbacks(newConn)
+					}
 				}
 			}
 		}

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reef Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🦞 Reef Dashboard</div>
+        <div class="nav-links">
+            <a href="#/" class="nav-link active" data-page="overview">Overview</a>
+            <a href="#/tasks" class="nav-link" data-page="tasks">Tasks</a>
+            <a href="#/clients" class="nav-link" data-page="clients">Clients</a>
+        </div>
+        <div class="nav-status">
+            <span class="status-dot" id="sse-status"></span>
+            <span id="sse-label">Connecting...</span>
+        </div>
+    </nav>
+
+    <main class="content">
+        <!-- Overview Page -->
+        <div id="page-overview" class="page active">
+            <div class="stats-grid">
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-uptime">--</div>
+                    <div class="stat-label">Uptime</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-clients">0</div>
+                    <div class="stat-label">Connected Clients</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-queued">0</div>
+                    <div class="stat-label">Queued Tasks</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-running">0</div>
+                    <div class="stat-label">Running Tasks</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-completed">0</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-failed">0</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Submit Task</h2>
+                <form id="task-form" class="task-form">
+                    <div class="form-group">
+                        <label for="instruction">Instruction</label>
+                        <textarea id="instruction" name="instruction" rows="3" required placeholder="Describe the task..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="required_role">Required Role</label>
+                            <input type="text" id="required_role" name="required_role" required placeholder="e.g. coder, reviewer">
+                        </div>
+                        <div class="form-group">
+                            <label for="required_skills">Skills (comma-separated)</label>
+                            <input type="text" id="required_skills" name="required_skills" placeholder="e.g. go, python">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Submit Task</button>
+                </form>
+                <div id="submit-result" class="submit-result hidden"></div>
+            </div>
+        </div>
+
+        <!-- Tasks Page -->
+        <div id="page-tasks" class="page">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Tasks</h2>
+                    <div class="filters">
+                        <select id="filter-status" class="filter-select">
+                            <option value="">All Statuses</option>
+                            <option value="Queued">Queued</option>
+                            <option value="Running">Running</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Failed">Failed</option>
+                            <option value="Cancelled">Cancelled</option>
+                            <option value="Escalated">Escalated</option>
+                        </select>
+                        <input type="text" id="filter-role" class="filter-input" placeholder="Filter by role...">
+                        <button id="btn-refresh-tasks" class="btn btn-secondary">Refresh</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Role</th>
+                                <th>Instruction</th>
+                                <th>Assigned To</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasks-body"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="tasks-pagination"></div>
+            </div>
+        </div>
+
+        <!-- Clients Page -->
+        <div id="page-clients" class="page">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Clients</h2>
+                    <button id="btn-refresh-clients" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Role</th>
+                                <th>Skills</th>
+                                <th>State</th>
+                                <th>Load</th>
+                                <th>Last Heartbeat</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clients-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

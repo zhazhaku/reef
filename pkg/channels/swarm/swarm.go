@@ -1,121 +1,311 @@
-// Package swarm implements a PicoClaw Channel that communicates over
-// WebSocket with a Reef Server, enabling distributed task execution.
+// Package swarm implements a Reef Channel that connects to a Reef Server
+// over WebSocket, enabling distributed multi-agent task execution.
 package swarm
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/zhazhaku/reef/pkg/agent"
 	"github.com/zhazhaku/reef/pkg/bus"
+	"github.com/zhazhaku/reef/pkg/channels"
+	"github.com/zhazhaku/reef/pkg/config"
 	"github.com/zhazhaku/reef/pkg/reef"
 	"github.com/zhazhaku/reef/pkg/reef/client"
-	"github.com/zhazhaku/reef/pkg/reef/raft"
 )
 
-// SwarmChannel bridges PicoClaw's MessageBus with Reef's WebSocket protocol.
+const (
+	channelName       = "swarm"
+	metadataKeyTaskID   = "reef_task_id"
+	metadataKeyRole     = "reef_role"
+	metadataKeySkills   = "reef_skills"
+	metadataKeyModelHint = "reef_model_hint"
+)
+
+// SwarmChannel bridges Reef's MessageBus with Reef's WebSocket protocol.
+// It implements channels.Channel and agent.EventObserver.
 type SwarmChannel struct {
+	*channels.BaseChannel
+	bc *config.Channel
+
 	connector *client.Connector
-	inCh      chan bus.Message   // to AgentLoop
-	outCh     chan bus.Message   // from AgentLoop
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	logger    *slog.Logger
+	msgBus    *bus.MessageBus
+	agentLoop *agent.AgentLoop
+	hookReg   string
+
+	mu          sync.RWMutex
+	activeTasks map[string]*activeTask // task_id -> task
+	turnTasks   map[string]string      // turn_id -> task_id
+
+	logger *slog.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-// Options configures the SwarmChannel.
-type Options struct {
-	Connector *client.Connector
-	Logger    *slog.Logger
+// activeTask tracks a task dispatched from Reef Server.
+type activeTask struct {
+	taskID       string
+	sessionKey   string
+	turnID       string
+	instruction  string
+	finalContent string
+	status       string
+	startTime    time.Time
 }
 
-// New creates a SwarmChannel.
-func New(opts Options) *SwarmChannel {
-	if opts.Logger == nil {
-		opts.Logger = slog.Default()
+// NewSwarmChannel creates a new SwarmChannel.
+func NewSwarmChannel(
+	bc *config.Channel,
+	cfg *config.SwarmSettings,
+	msgBus *bus.MessageBus,
+) (*SwarmChannel, error) {
+	// Server mode: the Reef Server runs separately, not as a client channel.
+	// The channel manager should not attempt to initialize swarm in server mode
+	// (getChannelConfigAndEnabled returns false for server mode), but guard here
+	// as a safety net in case the factory is invoked via other paths.
+	if cfg.Mode == "server" {
+		return nil, fmt.Errorf("swarm in server mode should not be initialized as a client channel")
 	}
-	return &SwarmChannel{
-		connector: opts.Connector,
-		inCh:      make(chan bus.Message, 16),
-		outCh:     make(chan bus.Message, 16),
-		logger:    opts.Logger,
+	if cfg.ServerURL == "" {
+		return nil, fmt.Errorf("swarm server_url is required")
 	}
+	if cfg.Role == "" {
+		return nil, fmt.Errorf("swarm role is required")
+	}
+	if cfg.ClientID == "" {
+		cfg.ClientID = generateClientID()
+	}
+	if cfg.Capacity <= 0 {
+		cfg.Capacity = 3
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = 30
+	}
+
+	base := channels.NewBaseChannel(channelName, cfg, msgBus, bc.AllowFrom)
+
+	connectorOpts := client.ConnectorOptions{
+		ServerURL:         cfg.ServerURL,
+		Token:             cfg.Token,
+		ClientID:          cfg.ClientID,
+		Role:              cfg.Role,
+		Skills:            cfg.Skills,
+		Providers:         cfg.Providers,
+		Capacity:          cfg.Capacity,
+		HeartbeatInterval: time.Duration(cfg.HeartbeatInterval) * time.Second,
+		TLSCertFile:       cfg.TLSCertFile,
+		TLSKeyFile:        cfg.TLSKeyFile,
+		TLSCAFile:         cfg.TLSCAFile,
+		TLSSkipVerify:     cfg.TLSSkipVerify,
+	}
+
+	ch := &SwarmChannel{
+		BaseChannel: base,
+		bc:          bc,
+		connector:   client.NewConnector(connectorOpts),
+		msgBus:      msgBus,
+		activeTasks: make(map[string]*activeTask),
+		turnTasks:   make(map[string]string),
+		logger:      slog.Default(),
+	}
+	return ch, nil
 }
 
-// NewConnectorFromAddr creates a Connector suitable for SwarmChannel from a
-// server address string. Supports both single addresses and comma-separated
-// multi-server addresses for federation mode.
-//
-// Single:  "ws://host1:8080/ws"
-// Multi:   "ws://host1:8080/ws,ws://host2:8080/ws,ws://host3:8080/ws"
-func NewConnectorFromAddr(serverAddr string, opts client.ConnectorOptions) (*client.Connector, error) {
-	addrs := strings.Split(serverAddr, ",")
-	if len(addrs) == 1 {
-		opts.ServerURL = strings.TrimSpace(addrs[0])
-		return client.NewConnector(opts), nil
+// SetAgentLoop wires the SwarmChannel to the AgentLoop for event observation.
+// If the channel is already running, the hook is mounted immediately.
+// Also sets the AgentLoop to HermesExecutor mode when running as a client.
+func (s *SwarmChannel) SetAgentLoop(al *agent.AgentLoop) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.agentLoop = al
+
+	// When running as a client (SwarmChannel), set HermesExecutor mode.
+	// This ensures the AgentLoop doesn't try to delegate tasks externally
+	// — it executes tasks received from the server using all available tools.
+	if al != nil {
+		al.SetHermesMode(agent.HermesExecutor)
+		s.logger.Info("Hermes mode set to executor for swarm client",
+			slog.String("client_id", s.connector.ClientID()))
 	}
 
-	// Multi-server: trim whitespace, filter empty
-	clean := make([]string, 0, len(addrs))
-	for _, a := range addrs {
-		a = strings.TrimSpace(a)
-		if a != "" {
-			clean = append(clean, a)
+	// If already running, mount the hook now (normally Start() does this,
+	// but SetAgentLoop may be called after Start due to startup ordering).
+	if al != nil && s.IsRunning() && s.hookReg == "" {
+		reg := agent.NamedHook("reef-swarm", s)
+		if err := al.MountHook(reg); err != nil {
+			s.logger.Warn("failed to mount reef hook in SetAgentLoop", slog.String("error", err.Error()))
+		} else {
+			s.hookReg = reg.Name
+			s.logger.Info("reef-swarm hook mounted via SetAgentLoop")
 		}
 	}
-	if len(clean) == 0 {
-		return nil, fmt.Errorf("no valid server addresses in %q", serverAddr)
-	}
-
-	poolCfg := raft.DefaultPoolConfig()
-	poolCfg.ServerAddrs = clean
-	return client.NewPoolConnector(opts, poolCfg)
 }
 
-// Start connects to the Reef Server and begins relaying messages.
-func (s *SwarmChannel) Start() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
+// Start implements channels.Channel.
+func (s *SwarmChannel) Start(ctx context.Context) error {
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.SetRunning(true)
 
-	if err := s.connector.Connect(ctx); err != nil {
-		return fmt.Errorf("connect: %w", err)
+	if err := s.connector.Connect(s.ctx); err != nil {
+		return fmt.Errorf("swarm connect: %w", err)
+	}
+
+	// Register as event observer if agent loop is available
+	if s.agentLoop != nil {
+		reg := agent.NamedHook("reef-swarm", s)
+		if err := s.agentLoop.MountHook(reg); err != nil {
+			s.logger.Warn("failed to mount reef hook", slog.String("error", err.Error()))
+		} else {
+			s.hookReg = reg.Name
+		}
 	}
 
 	s.wg.Add(1)
-	go s.receiveLoop(ctx)
-	s.wg.Add(1)
-	go s.sendLoop(ctx)
+	go s.receiveLoop(s.ctx)
 
+	s.logger.Info("swarm channel started",
+		slog.String("client_id", s.connector.ClientID()),
+		slog.String("role", s.connector.Role()),
+		slog.String("server", s.connector.ServerURL()))
 	return nil
 }
 
-// Stop shuts down the channel gracefully.
-func (s *SwarmChannel) Stop() error {
+// Stop implements channels.Channel.
+func (s *SwarmChannel) Stop(ctx context.Context) error {
+	s.SetRunning(false)
 	if s.cancel != nil {
 		s.cancel()
 	}
+
+	if s.hookReg != "" && s.agentLoop != nil {
+		s.agentLoop.UnmountHook(s.hookReg)
+	}
+
 	_ = s.connector.Close()
 	s.wg.Wait()
-	close(s.inCh)
-	close(s.outCh)
 	return nil
 }
 
-// Send delivers an outbound message (from AgentLoop) toward the Server.
-func (s *SwarmChannel) Send(msg bus.Message) error {
-	select {
-	case s.outCh <- msg:
-		return nil
-	default:
-		return fmt.Errorf("outbound buffer full")
+// Send implements channels.Channel — receives outbound messages from AgentLoop.
+func (s *SwarmChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
+	if !s.IsRunning() {
+		return nil, channels.ErrNotRunning
 	}
+
+	// Only handle messages for the swarm channel
+	if msg.Context.Channel != channelName {
+		return nil, nil
+	}
+
+	taskID := msg.Context.ChatID
+	if taskID == "" {
+		return nil, nil
+	}
+
+	s.mu.RLock()
+	task, ok := s.activeTasks[taskID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, nil
+	}
+
+	kind := strings.TrimSpace(msg.Context.Raw["message_kind"])
+	switch kind {
+	case "tool_feedback", "thought", "tool_calls":
+		// Intermediate progress
+		s.reportProgress(taskID, "running", 0, msg.Content)
+	default:
+		// Final response candidate
+		s.mu.Lock()
+		task.finalContent = msg.Content
+		s.mu.Unlock()
+
+		// Report completion immediately — the OnEvent path may not fire
+		// if SetAgentLoop was never called, so Send() is the reliable path.
+		s.reportCompleted(taskID, msg.Content, 0)
+		s.removeActiveTask(taskID)
+	}
+
+	return nil, nil
 }
 
-// Receive returns the channel of inbound messages (to AgentLoop).
-func (s *SwarmChannel) Receive() <-chan bus.Message {
-	return s.inCh
+// OnEvent implements agent.EventObserver.
+func (s *SwarmChannel) OnEvent(ctx context.Context, evt agent.Event) error {
+	switch evt.Kind {
+	case agent.EventKindTurnStart:
+		payload, ok := evt.Payload.(agent.TurnStartPayload)
+		if !ok {
+			return nil
+		}
+		_ = payload
+		// Map turn to task via session key
+		s.mu.Lock()
+		for taskID, task := range s.activeTasks {
+			if task.sessionKey == evt.Meta.SessionKey {
+				task.turnID = evt.Meta.TurnID
+				s.turnTasks[evt.Meta.TurnID] = taskID
+				break
+			}
+		}
+		s.mu.Unlock()
+
+	case agent.EventKindToolExecEnd:
+		payload, ok := evt.Payload.(agent.ToolExecEndPayload)
+		if !ok {
+			return nil
+		}
+		taskID := s.taskIDForTurn(evt.Meta.TurnID)
+		if taskID != "" {
+			msg := fmt.Sprintf("tool %s finished (%s)", payload.Tool, payload.Duration)
+			s.reportProgress(taskID, "running", 0, msg)
+		}
+
+	case agent.EventKindTurnEnd:
+		payload, ok := evt.Payload.(agent.TurnEndPayload)
+		if !ok {
+			return nil
+		}
+		taskID := s.taskIDForTurn(evt.Meta.TurnID)
+		if taskID == "" {
+			return nil
+		}
+
+		s.mu.Lock()
+		task := s.activeTasks[taskID]
+		if task != nil {
+			task.status = string(payload.Status)
+		}
+		s.mu.Unlock()
+
+		// If the task was already removed (completed via Send path),
+		// skip duplicate reporting.
+		if task == nil {
+			return nil
+		}
+
+		switch payload.Status {
+		case agent.TurnEndStatusCompleted:
+			var result string
+			if task != nil {
+				result = task.finalContent
+			}
+			s.reportCompleted(taskID, result, payload.Duration.Milliseconds())
+		case agent.TurnEndStatusError:
+			s.reportFailed(taskID, "execution_error", "turn ended with error", payload.Iterations)
+		case agent.TurnEndStatusAborted:
+			s.reportFailed(taskID, "cancelled", "turn was aborted", payload.Iterations)
+		}
+
+		s.removeActiveTask(taskID)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -132,28 +322,12 @@ func (s *SwarmChannel) receiveLoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			s.handleServerMessage(msg)
+			s.handleServerMessage(ctx, msg)
 		}
 	}
 }
 
-func (s *SwarmChannel) sendLoop(ctx context.Context) {
-	defer s.wg.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-s.outCh:
-			if !ok {
-				return
-			}
-			s.handleAgentMessage(msg)
-		}
-	}
-}
-
-// handleServerMessage converts a Reef protocol message to a bus.Message.
-func (s *SwarmChannel) handleServerMessage(msg reef.Message) {
+func (s *SwarmChannel) handleServerMessage(ctx context.Context, msg reef.Message) {
 	switch msg.MsgType {
 	case reef.MsgTaskDispatch:
 		var payload reef.TaskDispatchPayload
@@ -161,121 +335,189 @@ func (s *SwarmChannel) handleServerMessage(msg reef.Message) {
 			s.logger.Warn("decode task_dispatch", slog.String("error", err.Error()))
 			return
 		}
-		busMsg := bus.Message{
-			Type: bus.TypeInbound,
-			Text: payload.Instruction,
-			Payload: map[string]any{
-				"task_id":         payload.TaskID,
-				"required_role":   payload.RequiredRole,
-				"required_skills": payload.RequiredSkills,
-				"max_retries":     payload.MaxRetries,
-				"timeout_ms":      payload.TimeoutMs,
-			},
-		}
-		select {
-		case s.inCh <- busMsg:
-		default:
-			s.logger.Warn("inbound buffer full, dropped task_dispatch")
-		}
+		s.dispatchTask(ctx, payload)
 
 	case reef.MsgCancel:
 		var payload reef.ControlPayload
 		_ = msg.DecodePayload(&payload)
-		s.inCh <- bus.Message{
-			Type: bus.TypeSystem,
-			Text: "cancel",
-			Payload: map[string]any{
-				"task_id": payload.TaskID,
-			},
-		}
+		s.cancelTask(payload.TaskID)
 
 	case reef.MsgPause:
 		var payload reef.ControlPayload
 		_ = msg.DecodePayload(&payload)
-		s.inCh <- bus.Message{
-			Type: bus.TypeSystem,
-			Text: "pause",
-			Payload: map[string]any{
-				"task_id": payload.TaskID,
-			},
-		}
+		s.pauseTask(payload.TaskID)
 
 	case reef.MsgResume:
 		var payload reef.ControlPayload
 		_ = msg.DecodePayload(&payload)
-		s.inCh <- bus.Message{
-			Type: bus.TypeSystem,
-			Text: "resume",
-			Payload: map[string]any{
-				"task_id": payload.TaskID,
-			},
-		}
+		s.resumeTask(payload.TaskID)
 
 	default:
 		s.logger.Debug("unhandled server message", slog.String("msg_type", string(msg.MsgType)))
 	}
 }
 
-// handleAgentMessage converts a bus.Message to a Reef protocol message.
-func (s *SwarmChannel) handleAgentMessage(msg bus.Message) {
-	switch msg.Type {
-	case bus.TypeOutbound:
-		// Map outbound messages to task_progress or task_completed
-		if taskID, ok := msg.Payload["task_id"].(string); ok {
-			status, _ := msg.Payload["status"].(string)
-			switch status {
-			case "completed":
-				out, _ := reef.NewMessage(reef.MsgTaskCompleted, taskID, reef.TaskCompletedPayload{
-					TaskID:          taskID,
-					Result:          map[string]any{"text": msg.Text},
-					ExecutionTimeMs: getInt64(msg.Payload, "execution_time_ms"),
-				})
-				_ = s.connector.Send(out)
-			case "failed":
-				out, _ := reef.NewMessage(reef.MsgTaskFailed, taskID, reef.TaskFailedPayload{
-					TaskID:         taskID,
-					ErrorType:      getString(msg.Payload, "error_type"),
-					ErrorMessage:   msg.Text,
-					AttemptHistory: []reef.AttemptRecord{},
-				})
-				_ = s.connector.Send(out)
-			default:
-				percent := getInt(msg.Payload, "progress_percent")
-				out, _ := reef.NewMessage(reef.MsgTaskProgress, taskID, reef.TaskProgressPayload{
-					TaskID:          taskID,
-					Status:          status,
-					ProgressPercent: percent,
-					Message:         msg.Text,
-				})
-				_ = s.connector.Send(out)
-			}
-		}
+func (s *SwarmChannel) dispatchTask(ctx context.Context, payload reef.TaskDispatchPayload) {
+	taskID := payload.TaskID
+
+	s.mu.Lock()
+	if _, exists := s.activeTasks[taskID]; exists {
+		s.mu.Unlock()
+		s.logger.Warn("task already active", slog.String("task_id", taskID))
+		return
+	}
+	s.activeTasks[taskID] = &activeTask{
+		taskID:      taskID,
+		instruction: payload.Instruction,
+		status:      "running",
+		startTime:   time.Now(),
+	}
+	s.mu.Unlock()
+
+	// Build inbound message for AgentLoop
+	raw := map[string]string{
+		metadataKeyTaskID: taskID,
+	}
+	if payload.RequiredRole != "" {
+		raw[metadataKeyRole] = payload.RequiredRole
+	}
+	if len(payload.RequiredSkills) > 0 {
+		raw[metadataKeySkills] = strings.Join(payload.RequiredSkills, ",")
+	}
+	if payload.ModelHint != "" {
+		raw[metadataKeyModelHint] = payload.ModelHint
+	}
+
+	inboundCtx := bus.InboundContext{
+		Channel:  channelName,
+		ChatID:   taskID,
+		ChatType: "direct",
+		SenderID: "reef-server",
+		Raw:      raw,
+	}
+
+	inboundMsg := bus.InboundMessage{
+		Context:    inboundCtx,
+		Content:    payload.Instruction,
+		SessionKey: fmt.Sprintf("reef:%s", taskID),
+	}
+	inboundMsg = bus.NormalizeInboundMessage(inboundMsg)
+
+	// Track session key for turn mapping
+	s.mu.Lock()
+	if task := s.activeTasks[taskID]; task != nil {
+		task.sessionKey = inboundMsg.SessionKey
+	}
+	s.mu.Unlock()
+
+	if err := s.msgBus.PublishInbound(ctx, inboundMsg); err != nil {
+		s.logger.Error("failed to publish inbound task", slog.String("error", err.Error()))
+		s.reportFailed(taskID, "execution_error", err.Error(), 0)
+		s.removeActiveTask(taskID)
 	}
 }
 
-func getString(m map[string]any, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
+func (s *SwarmChannel) cancelTask(taskID string) {
+	s.mu.Lock()
+	task, ok := s.activeTasks[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return
 	}
-	return ""
+	// There is no direct cancel on AgentLoop per task.
+	// The turn will continue; we mark it and send failed on TurnEnd.
+	s.mu.Lock()
+	task.status = "cancelled"
+	s.mu.Unlock()
+	s.reportProgress(taskID, "cancelled", 0, "task cancelled by server")
 }
 
-func getInt(m map[string]any, key string) int {
-	if v, ok := m[key].(int); ok {
-		return v
+func (s *SwarmChannel) pauseTask(taskID string) {
+	s.mu.Lock()
+	task, ok := s.activeTasks[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return
 	}
-	if v, ok := m[key].(float64); ok {
-		return int(v)
-	}
-	return 0
+	s.mu.Lock()
+	task.status = "paused"
+	s.mu.Unlock()
+	s.reportProgress(taskID, "paused", 0, "task paused by server")
 }
 
-func getInt64(m map[string]any, key string) int64 {
-	if v, ok := m[key].(int64); ok {
-		return v
+func (s *SwarmChannel) resumeTask(taskID string) {
+	s.mu.Lock()
+	task, ok := s.activeTasks[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return
 	}
-	if v, ok := m[key].(float64); ok {
-		return int64(v)
+	s.mu.Lock()
+	task.status = "running"
+	s.mu.Unlock()
+	s.reportProgress(taskID, "running", 0, "task resumed by server")
+}
+
+func (s *SwarmChannel) removeActiveTask(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task := s.activeTasks[taskID]
+	if task != nil && task.turnID != "" {
+		delete(s.turnTasks, task.turnID)
 	}
-	return 0
+	delete(s.activeTasks, taskID)
+}
+
+func (s *SwarmChannel) taskIDForTurn(turnID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnTasks[turnID]
+}
+
+// ---------------------------------------------------------------------------
+// Reporting helpers
+// ---------------------------------------------------------------------------
+
+func (s *SwarmChannel) reportProgress(taskID, status string, percent int, message string) {
+	msg, _ := reef.NewMessage(reef.MsgTaskProgress, taskID, reef.TaskProgressPayload{
+		TaskID:          taskID,
+		Status:          status,
+		ProgressPercent: percent,
+		Message:         message,
+		Timestamp:       time.Now().UnixMilli(),
+	})
+	_ = s.connector.Send(msg)
+}
+
+func (s *SwarmChannel) reportCompleted(taskID, result string, execTimeMs int64) {
+	msg, _ := reef.NewMessage(reef.MsgTaskCompleted, taskID, reef.TaskCompletedPayload{
+		TaskID:          taskID,
+		Result:          map[string]any{"text": result},
+		ExecutionTimeMs: execTimeMs,
+		Timestamp:       time.Now().UnixMilli(),
+	})
+	_ = s.connector.Send(msg)
+}
+
+func (s *SwarmChannel) reportFailed(taskID string, errorType, errorMsg string, attempts int) {
+	msg, _ := reef.NewMessage(reef.MsgTaskFailed, taskID, reef.TaskFailedPayload{
+		TaskID:         taskID,
+		ErrorType:      errorType,
+		ErrorMessage:   errorMsg,
+		AttemptHistory: []reef.AttemptRecord{{AttemptNumber: attempts}},
+		Timestamp:      time.Now().UnixMilli(),
+	})
+	_ = s.connector.Send(msg)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func generateClientID() string {
+	host, _ := os.Hostname()
+	if host == "" {
+		host = "reef"
+	}
+	return fmt.Sprintf("%s-%d", host, time.Now().Unix())
 }

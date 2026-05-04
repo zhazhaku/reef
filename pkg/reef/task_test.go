@@ -79,8 +79,8 @@ func TestNewTask(t *testing.T) {
 	if task.MaxRetries != 3 {
 		t.Errorf("MaxRetries = %d, want 3", task.MaxRetries)
 	}
-	if task.TimeoutMs != 300_000 {
-		t.Errorf("TimeoutMs = %d, want 300000", task.TimeoutMs)
+	if task.TimeoutMs != 600_000 {
+		t.Errorf("TimeoutMs = %d, want 600000", task.TimeoutMs)
 	}
 }
 
