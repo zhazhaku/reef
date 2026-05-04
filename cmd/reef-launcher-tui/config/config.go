@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 // Package config provides types and I/O for ~/.reef/tui.toml.
 package config
@@ -27,7 +27,7 @@ func DefaultConfigPath() string {
 	return filepath.Join(home, ".reef", "tui.toml")
 }
 
-// TUIConfig is the top-level structure of ~/.picoclaw/tui.toml.
+// TUIConfig is the top-level structure of ~/.reef/tui.toml.
 type TUIConfig struct {
 	Version  string   `toml:"version"`
 	Model    Model    `toml:"model"`
@@ -151,7 +151,7 @@ func (p *Provider) UsersForScheme(schemeName string) []User {
 	return out
 }
 
-// SyncSelectedModelToMainConfig syncs the currently selected model to ~/.picoclaw/config.json
+// SyncSelectedModelToMainConfig syncs the currently selected model to ~/.reef/config.json
 // Adds/replaces a "tui-prefer" model entry and sets it as the default model.
 // Preserves all other existing fields in the config file unchanged.
 func SyncSelectedModelToMainConfig(scheme Scheme, user User, modelID string) error {
@@ -159,7 +159,7 @@ func SyncSelectedModelToMainConfig(scheme Scheme, user User, modelID string) err
 	if err != nil {
 		home = "."
 	}
-	mainConfigPath := filepath.Join(home, ".picoclaw", "config.json")
+	mainConfigPath := filepath.Join(home, ".reef", "config.json")
 
 	var cfg map[string]any
 	if data, readErr := os.ReadFile(mainConfigPath); readErr == nil {

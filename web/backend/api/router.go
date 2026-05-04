@@ -50,7 +50,7 @@ func (h *Handler) SetServerOptions(port int, public bool, publicExplicit bool, a
 }
 
 // SetServerBindHost stores the launcher's effective bind host.
-// When explicit is true, hostInput is the normalized -host / PICOCLAW_LAUNCHER_HOST value.
+// When explicit is true, hostInput is the normalized -host / REEF_LAUNCHER_HOST value.
 func (h *Handler) SetServerBindHost(hostInput string, explicit bool) {
 	h.serverHostInput = strings.TrimSpace(hostInput)
 	if !explicit {

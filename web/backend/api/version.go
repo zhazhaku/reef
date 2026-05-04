@@ -53,7 +53,7 @@ var (
 	versionInfoCache            = newSystemVersionCache()
 	ansiEscapePattern           = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	versionLinePattern          = regexp.MustCompile(
-		`^(?:[^A-Za-z0-9]*\s*)?picoclaw(?:\.exe)?\s+([^\s(]+)` +
+		`^(?:[^A-Za-z0-9]*\s*)?reef(?:\.exe)?\s+([^\s(]+)` +
 			`(?:\s+\(git:\s*([^)]+)\))?\s*$`,
 	)
 )
@@ -73,7 +73,7 @@ func (h *Handler) handleGetVersion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveSystemVersionInfo prefers the actual picoclaw binary version output,
+// resolveSystemVersionInfo prefers the actual reef binary version output,
 // and falls back to launcher build metadata when command execution fails.
 func (h *Handler) resolveSystemVersionInfo(ctx context.Context) systemVersionResponse {
 	for range maxVersionResolveAttempts {
@@ -257,7 +257,7 @@ func (c *systemVersionCache) resetForTest() {
 }
 
 // executePicoclawVersion runs the version subcommand against the
-// discovered picoclaw executable.
+// discovered reef executable.
 func executePicoclawVersion(ctx context.Context, execPath string) (string, error) {
 	out, err := exec.CommandContext(ctx, execPath, "version").CombinedOutput()
 	if err == nil {

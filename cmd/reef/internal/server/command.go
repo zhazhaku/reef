@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 //
 // `reef server` command — starts Reef in Server mode:
 //   - Gateway (channels + LLM + AgentLoop)
@@ -10,8 +10,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -31,10 +29,10 @@ func NewServerCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "server",
-		Short: "Start PicoClaw in server mode (Reef + Hermes Coordinator)",
-		Long: `Start PicoClaw in server mode.
+		Short: "Start Reef in server mode (Reef + Hermes Coordinator)",
+		Long: `Start Reef in server mode.
 
-This command launches PicoClaw as a team coordinator that:
+This command launches Reef as a team coordinator that:
   • Starts the Reef Server for managing connected clients
   • Enables Hermes Coordinator mode (restricted tool set)
   • Delegates complex tasks to connected client agents
@@ -67,18 +65,11 @@ tasks to specialized clients and aggregating their results.`,
 			// Auto-configure Reef Server if not already configured
 			ensureReefServerConfig(cfg, wsAddr, adminAddr)
 
-			// Write patched config to a temporary file
-			tmpConfig, err := writeTempConfig(cfg)
-			if err != nil {
-				return fmt.Errorf("error preparing server config: %w", err)
-			}
-			defer os.Remove(tmpConfig)
-
 			// Print server mode banner
 			printServerBanner()
 
-			// Launch gateway with patched config
-			return gateway.Run(debug, internal.GetPicoclawHome(), tmpConfig, allowEmpty)
+			// Launch gateway with pre-loaded config (preserves SecureString secrets)
+			return gateway.RunWithConfig(cfg, debug, internal.GetPicoclawHome(), allowEmpty)
 		},
 	}
 
@@ -137,35 +128,6 @@ func ensureReefServerConfig(cfg *config.Config, wsAddr, adminAddr string) {
 	cfg.Channels["swarm"] = ch
 }
 
-// writeTempConfig writes the patched config to a temporary file.
-// This avoids modifying the user's actual config.json.
-func writeTempConfig(cfg *config.Config) (string, error) {
-	home := internal.GetPicoclawHome()
-	tmpDir := filepath.Join(home, "tmp")
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		return "", err
-	}
-
-	tmpFile, err := os.CreateTemp(tmpDir, "reef-server-*.json")
-	if err != nil {
-		return "", err
-	}
-	defer tmpFile.Close()
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("error marshaling config: %w", err)
-	}
-
-	if _, err := tmpFile.Write(data); err != nil {
-		os.Remove(tmpFile.Name())
-		return "", err
-	}
-
-	return tmpFile.Name(), nil
-}
-
 // cmdFlagChanged returns true if the value differs from the default.
 func cmdFlagChanged(value, defaultValue string) bool {
 	return value != defaultValue
@@ -175,7 +137,7 @@ func cmdFlagChanged(value, defaultValue string) bool {
 func printServerBanner() {
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                   PicoClaw Server Mode                      ║")
+	fmt.Println("║                   Reef Server Mode                      ║")
 	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
 	fmt.Println("║  Hermes Mode:  Coordinator                                  ║")
 	fmt.Println("║  Role:         Team Coordinator (task delegation)           ║")

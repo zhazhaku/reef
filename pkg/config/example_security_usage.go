@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 // This file demonstrates how to use the security configuration feature
 // It's not meant to be compiled, just for documentation purposes
@@ -84,7 +84,7 @@ Note: Sensitive fields are omitted because they're loaded from .security.yml
 	  "version": 1,
 	  "agents": {
 	    "defaults": {
-	      "workspace": "~/picoclaw-workspace",
+	      "workspace": "~/reef-workspace",
 	      "model_name": "gpt-5.4"
 	    }
 	  },
@@ -152,7 +152,7 @@ chmod 600 ~/.reef/.security.yml
 ## 5. Verify it works
 
 ```bash
-picoclaw --version
+reef --version
 ```
 
 # Supported Fields in .security.yml
@@ -355,7 +355,7 @@ chmod 600 ~/.reef/.security.yml
 
 ## Step 6: Test
 ```bash
-picoclaw --version
+reef --version
 ```
 
 If everything works, you can delete the backup:
@@ -535,15 +535,15 @@ You can override any security value using environment variables:
 
 ```bash
 # Channels
-export PICOCLAW_CHANNELS_TELEGRAM_TOKEN="token-from-env"
-export PICOCLAW_CHANNELS_DISCORD_TOKEN="discord-token-from-env"
+export REEF_CHANNELS_TELEGRAM_TOKEN="token-from-env"
+export REEF_CHANNELS_DISCORD_TOKEN="discord-token-from-env"
 
 # Web Tools
-export PICOCLAW_TOOLS_WEB_BRAVE_API_KEY="brave-key-from-env"
-export PICOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
+export REEF_TOOLS_WEB_BRAVE_API_KEY="brave-key-from-env"
+export REEF_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 
 # Skills
-export PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN="github-token-from-env"
+export REEF_TOOLS_SKILLS_GITHUB_TOKEN="github-token-from-env"
 ```
 
 Environment variables have the highest priority and will override both config.json

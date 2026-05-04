@@ -13,13 +13,13 @@ import (
 	"github.com/zhazhaku/reef/pkg/logger"
 )
 
-// GetPicoclawHome returns the picoclaw home directory.
-// Priority: $PICOCLAW_HOME > ~/.picoclaw
+// GetPicoclawHome returns the reef home directory.
+// Priority: $REEF_HOME > ~/.reef
 func GetPicoclawHome() string {
 	return config.GetHome()
 }
 
-// GetDefaultConfigPath returns the default path to the picoclaw config file.
+// GetDefaultConfigPath returns the default path to the reef config file.
 func GetDefaultConfigPath() string {
 	if configPath := os.Getenv(config.EnvConfig); configPath != "" {
 		return configPath
@@ -45,14 +45,14 @@ func FindReefBinary() string {
 	}
 
 	if exe, err := os.Executable(); err == nil {
-		logger.Debugf("Trying to find picoclaw binary in %s", exe)
+		logger.Debugf("Trying to find reef binary in %s", exe)
 		candidate := filepath.Join(filepath.Dir(exe), binaryName)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate
 		}
 	}
 
-	return "picoclaw"
+	return "reef"
 }
 
 func appendUniqueIP(addrs []string, seen map[string]struct{}, value string) []string {

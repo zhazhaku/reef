@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 // Package common provides shared utilities used by multiple LLM provider
 // implementations (openai_compat, azure, etc.).

@@ -58,7 +58,7 @@ type Config struct {
 	sensitiveCache *SensitiveDataCache
 }
 
-// IsolationConfig controls subprocess isolation for commands started by PicoClaw.
+// IsolationConfig controls subprocess isolation for commands started by Reef.
 // It is applied by the isolation package rather than by sandboxing the main process.
 type IsolationConfig struct {
 	Enabled     bool         `json:"enabled,omitempty"`
@@ -285,43 +285,43 @@ type RoutingConfig struct {
 
 // SubTurnConfig configures the SubTurn execution system.
 type SubTurnConfig struct {
-	MaxDepth              int `json:"max_depth"               env:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_MAX_DEPTH"`
-	MaxConcurrent         int `json:"max_concurrent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT"`
-	DefaultTimeoutMinutes int `json:"default_timeout_minutes" env:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TIMEOUT_MINUTES"`
-	DefaultTokenBudget    int `json:"default_token_budget"    env:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TOKEN_BUDGET"`
-	ConcurrencyTimeoutSec int `json:"concurrency_timeout_sec" env:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC"`
+	MaxDepth              int `json:"max_depth"               env:"REEF_AGENTS_DEFAULTS_SUBTURN_MAX_DEPTH"`
+	MaxConcurrent         int `json:"max_concurrent"          env:"REEF_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT"`
+	DefaultTimeoutMinutes int `json:"default_timeout_minutes" env:"REEF_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TIMEOUT_MINUTES"`
+	DefaultTokenBudget    int `json:"default_token_budget"    env:"REEF_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TOKEN_BUDGET"`
+	ConcurrencyTimeoutSec int `json:"concurrency_timeout_sec" env:"REEF_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC"`
 }
 
 type ToolFeedbackConfig struct {
-	Enabled          bool `json:"enabled"           env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_ENABLED"`
-	MaxArgsLength    int  `json:"max_args_length"   env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH"`
-	SeparateMessages bool `json:"separate_messages" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
+	Enabled          bool `json:"enabled"           env:"REEF_AGENTS_DEFAULTS_TOOL_FEEDBACK_ENABLED"`
+	MaxArgsLength    int  `json:"max_args_length"   env:"REEF_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH"`
+	SeparateMessages bool `json:"separate_messages" env:"REEF_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
 type AgentDefaults struct {
-	Workspace                 string             `json:"workspace"                        env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
-	Provider                  string             `json:"provider"                         env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	ModelName                 string             `json:"model_name"                       env:"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
+	Workspace                 string             `json:"workspace"                        env:"REEF_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"REEF_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"REEF_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
+	Provider                  string             `json:"provider"                         env:"REEF_AGENTS_DEFAULTS_PROVIDER"`
+	ModelName                 string             `json:"model_name"                       env:"REEF_AGENTS_DEFAULTS_MODEL_NAME"`
 	ModelFallbacks            []string           `json:"model_fallbacks,omitempty"`
-	ImageModel                string             `json:"image_model,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModel                string             `json:"image_model,omitempty"            env:"REEF_AGENTS_DEFAULTS_IMAGE_MODEL"`
 	ImageModelFallbacks       []string           `json:"image_model_fallbacks,omitempty"`
-	MaxTokens                 int                `json:"max_tokens"                       env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
-	ContextWindow             int                `json:"context_window,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
-	Temperature               *float64           `json:"temperature,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations         int                `json:"max_tool_iterations"              env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
-	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	MaxTokens                 int                `json:"max_tokens"                       env:"REEF_AGENTS_DEFAULTS_MAX_TOKENS"`
+	ContextWindow             int                `json:"context_window,omitempty"         env:"REEF_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
+	Temperature               *float64           `json:"temperature,omitempty"            env:"REEF_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations         int                `json:"max_tool_iterations"              env:"REEF_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"REEF_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"REEF_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"REEF_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
-	SteeringMode              string             `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
-	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
+	SteeringMode              string             `json:"steering_mode,omitempty"          env:"REEF_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"REEF_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
+	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"REEF_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
-	SplitOnMarker             bool               `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	ContextManager            string             `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
-	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	SplitOnMarker             bool               `json:"split_on_marker"                  env:"REEF_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
+	ContextManager            string             `json:"context_manager,omitempty"        env:"REEF_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
+	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"REEF_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -389,67 +389,67 @@ func (p *PlaceholderConfig) GetRandomText() string {
 }
 
 type StreamingConfig struct {
-	Enabled         bool `json:"enabled,omitempty"          env:"PICOCLAW_CHANNELS_TELEGRAM_STREAMING_ENABLED"`
-	ThrottleSeconds int  `json:"throttle_seconds,omitempty" env:"PICOCLAW_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS"`
-	MinGrowthChars  int  `json:"min_growth_chars,omitempty" env:"PICOCLAW_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS"`
+	Enabled         bool `json:"enabled,omitempty"          env:"REEF_CHANNELS_TELEGRAM_STREAMING_ENABLED"`
+	ThrottleSeconds int  `json:"throttle_seconds,omitempty" env:"REEF_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS"`
+	MinGrowthChars  int  `json:"min_growth_chars,omitempty" env:"REEF_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS"`
 }
 
 type WhatsAppSettings struct {
-	BridgeURL        string `json:"bridge_url"         yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
-	UseNative        bool   `json:"use_native"         yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_USE_NATIVE"`
-	SessionStorePath string `json:"session_store_path" yaml:"-" env:"PICOCLAW_CHANNELS_WHATSAPP_SESSION_STORE_PATH"`
+	BridgeURL        string `json:"bridge_url"         yaml:"-" env:"REEF_CHANNELS_WHATSAPP_BRIDGE_URL"`
+	UseNative        bool   `json:"use_native"         yaml:"-" env:"REEF_CHANNELS_WHATSAPP_USE_NATIVE"`
+	SessionStorePath string `json:"session_store_path" yaml:"-" env:"REEF_CHANNELS_WHATSAPP_SESSION_STORE_PATH"`
 }
 
 type TelegramSettings struct {
-	Token         SecureString    `json:"token,omitzero"      yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_TELEGRAM_TOKEN"`
-	BaseURL       string          `json:"base_url"            yaml:"-"               env:"PICOCLAW_CHANNELS_TELEGRAM_BASE_URL"`
-	Proxy         string          `json:"proxy"               yaml:"-"               env:"PICOCLAW_CHANNELS_TELEGRAM_PROXY"`
+	Token         SecureString    `json:"token,omitzero"      yaml:"token,omitempty" env:"REEF_CHANNELS_TELEGRAM_TOKEN"`
+	BaseURL       string          `json:"base_url"            yaml:"-"               env:"REEF_CHANNELS_TELEGRAM_BASE_URL"`
+	Proxy         string          `json:"proxy"               yaml:"-"               env:"REEF_CHANNELS_TELEGRAM_PROXY"`
 	Streaming     StreamingConfig `json:"streaming,omitempty" yaml:"-"`
-	UseMarkdownV2 bool            `json:"use_markdown_v2"     yaml:"-"               env:"PICOCLAW_CHANNELS_TELEGRAM_USE_MARKDOWN_V2"`
+	UseMarkdownV2 bool            `json:"use_markdown_v2"     yaml:"-"               env:"REEF_CHANNELS_TELEGRAM_USE_MARKDOWN_V2"`
 }
 
 type FeishuSettings struct {
-	AppID               string              `json:"app_id"                      yaml:"-"                            env:"PICOCLAW_CHANNELS_FEISHU_APP_ID"`
-	AppSecret           SecureString        `json:"app_secret,omitzero"         yaml:"app_secret,omitempty"         env:"PICOCLAW_CHANNELS_FEISHU_APP_SECRET"`
-	EncryptKey          SecureString        `json:"encrypt_key,omitzero"        yaml:"encrypt_key,omitempty"        env:"PICOCLAW_CHANNELS_FEISHU_ENCRYPT_KEY"`
-	VerificationToken   SecureString        `json:"verification_token,omitzero" yaml:"verification_token,omitempty" env:"PICOCLAW_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
-	RandomReactionEmoji FlexibleStringSlice `json:"random_reaction_emoji"       yaml:"-"                            env:"PICOCLAW_CHANNELS_FEISHU_RANDOM_REACTION_EMOJI"`
-	IsLark              bool                `json:"is_lark"                     yaml:"-"                            env:"PICOCLAW_CHANNELS_FEISHU_IS_LARK"`
+	AppID               string              `json:"app_id"                      yaml:"-"                            env:"REEF_CHANNELS_FEISHU_APP_ID"`
+	AppSecret           SecureString        `json:"app_secret,omitzero"         yaml:"app_secret,omitempty"         env:"REEF_CHANNELS_FEISHU_APP_SECRET"`
+	EncryptKey          SecureString        `json:"encrypt_key,omitzero"        yaml:"encrypt_key,omitempty"        env:"REEF_CHANNELS_FEISHU_ENCRYPT_KEY"`
+	VerificationToken   SecureString        `json:"verification_token,omitzero" yaml:"verification_token,omitempty" env:"REEF_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
+	RandomReactionEmoji FlexibleStringSlice `json:"random_reaction_emoji"       yaml:"-"                            env:"REEF_CHANNELS_FEISHU_RANDOM_REACTION_EMOJI"`
+	IsLark              bool                `json:"is_lark"                     yaml:"-"                            env:"REEF_CHANNELS_FEISHU_IS_LARK"`
 }
 
 type DiscordSettings struct {
-	Token       SecureString `json:"token,omitzero" yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_DISCORD_TOKEN"`
-	Proxy       string       `json:"proxy"          yaml:"-"               env:"PICOCLAW_CHANNELS_DISCORD_PROXY"`
-	MentionOnly bool         `json:"mention_only"   yaml:"-"               env:"PICOCLAW_CHANNELS_DISCORD_MENTION_ONLY"`
+	Token       SecureString `json:"token,omitzero" yaml:"token,omitempty" env:"REEF_CHANNELS_DISCORD_TOKEN"`
+	Proxy       string       `json:"proxy"          yaml:"-"               env:"REEF_CHANNELS_DISCORD_PROXY"`
+	MentionOnly bool         `json:"mention_only"   yaml:"-"               env:"REEF_CHANNELS_DISCORD_MENTION_ONLY"`
 }
 
 type MaixCamSettings struct {
-	Host string `json:"host" yaml:"-" env:"PICOCLAW_CHANNELS_MAIXCAM_HOST"`
-	Port int    `json:"port" yaml:"-" env:"PICOCLAW_CHANNELS_MAIXCAM_PORT"`
+	Host string `json:"host" yaml:"-" env:"REEF_CHANNELS_MAIXCAM_HOST"`
+	Port int    `json:"port" yaml:"-" env:"REEF_CHANNELS_MAIXCAM_PORT"`
 }
 
 type QQSettings struct {
-	AppID                string       `json:"app_id"                   yaml:"-"                    env:"PICOCLAW_CHANNELS_QQ_APP_ID"`
-	AppSecret            SecureString `json:"app_secret,omitzero"      yaml:"app_secret,omitempty" env:"PICOCLAW_CHANNELS_QQ_APP_SECRET"`
-	MaxMessageLength     int          `json:"max_message_length"       yaml:"-"                    env:"PICOCLAW_CHANNELS_QQ_MAX_MESSAGE_LENGTH"`
-	MaxBase64FileSizeMiB int64        `json:"max_base64_file_size_mib" yaml:"-"                    env:"PICOCLAW_CHANNELS_QQ_MAX_BASE64_FILE_SIZE_MIB"`
-	SendMarkdown         bool         `json:"send_markdown"            yaml:"-"                    env:"PICOCLAW_CHANNELS_QQ_SEND_MARKDOWN"`
+	AppID                string       `json:"app_id"                   yaml:"-"                    env:"REEF_CHANNELS_QQ_APP_ID"`
+	AppSecret            SecureString `json:"app_secret,omitzero"      yaml:"app_secret,omitempty" env:"REEF_CHANNELS_QQ_APP_SECRET"`
+	MaxMessageLength     int          `json:"max_message_length"       yaml:"-"                    env:"REEF_CHANNELS_QQ_MAX_MESSAGE_LENGTH"`
+	MaxBase64FileSizeMiB int64        `json:"max_base64_file_size_mib" yaml:"-"                    env:"REEF_CHANNELS_QQ_MAX_BASE64_FILE_SIZE_MIB"`
+	SendMarkdown         bool         `json:"send_markdown"            yaml:"-"                    env:"REEF_CHANNELS_QQ_SEND_MARKDOWN"`
 }
 
 type DingTalkSettings struct {
-	ClientID     string       `json:"client_id"              yaml:"-"                       env:"PICOCLAW_CHANNELS_DINGTALK_CLIENT_ID"`
-	ClientSecret SecureString `json:"client_secret,omitzero" yaml:"client_secret,omitempty" env:"PICOCLAW_CHANNELS_DINGTALK_CLIENT_SECRET"`
+	ClientID     string       `json:"client_id"              yaml:"-"                       env:"REEF_CHANNELS_DINGTALK_CLIENT_ID"`
+	ClientSecret SecureString `json:"client_secret,omitzero" yaml:"client_secret,omitempty" env:"REEF_CHANNELS_DINGTALK_CLIENT_SECRET"`
 }
 
 type SlackSettings struct {
-	BotToken SecureString `json:"bot_token,omitzero" yaml:"bot_token,omitempty" env:"PICOCLAW_CHANNELS_SLACK_BOT_TOKEN"`
-	AppToken SecureString `json:"app_token,omitzero" yaml:"app_token,omitempty" env:"PICOCLAW_CHANNELS_SLACK_APP_TOKEN"`
+	BotToken SecureString `json:"bot_token,omitzero" yaml:"bot_token,omitempty" env:"REEF_CHANNELS_SLACK_BOT_TOKEN"`
+	AppToken SecureString `json:"app_token,omitzero" yaml:"app_token,omitempty" env:"REEF_CHANNELS_SLACK_APP_TOKEN"`
 }
 
 type MatrixSettings struct {
-	Homeserver         string       `json:"homeserver"                     yaml:"-"                      env:"PICOCLAW_CHANNELS_MATRIX_HOMESERVER"`
-	UserID             string       `json:"user_id"                        yaml:"-"                      env:"PICOCLAW_CHANNELS_MATRIX_USER_ID"`
-	AccessToken        SecureString `json:"access_token,omitzero"          yaml:"access_token,omitempty" env:"PICOCLAW_CHANNELS_MATRIX_ACCESS_TOKEN"`
+	Homeserver         string       `json:"homeserver"                     yaml:"-"                      env:"REEF_CHANNELS_MATRIX_HOMESERVER"`
+	UserID             string       `json:"user_id"                        yaml:"-"                      env:"REEF_CHANNELS_MATRIX_USER_ID"`
+	AccessToken        SecureString `json:"access_token,omitzero"          yaml:"access_token,omitempty" env:"REEF_CHANNELS_MATRIX_ACCESS_TOKEN"`
 	DeviceID           string       `json:"device_id,omitempty"            yaml:"-"`
 	JoinOnInvite       bool         `json:"join_on_invite"                 yaml:"-"`
 	MessageFormat      string       `json:"message_format,omitempty"       yaml:"-"`
@@ -458,18 +458,18 @@ type MatrixSettings struct {
 }
 
 type LINESettings struct {
-	ChannelSecret      SecureString `json:"channel_secret,omitzero"       yaml:"channel_secret,omitempty"       env:"PICOCLAW_CHANNELS_LINE_CHANNEL_SECRET"`
-	ChannelAccessToken SecureString `json:"channel_access_token,omitzero" yaml:"channel_access_token,omitempty" env:"PICOCLAW_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
-	WebhookHost        string       `json:"webhook_host"                  yaml:"-"                              env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_HOST"`
-	WebhookPort        int          `json:"webhook_port"                  yaml:"-"                              env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_PORT"`
-	WebhookPath        string       `json:"webhook_path"                  yaml:"-"                              env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_PATH"`
+	ChannelSecret      SecureString `json:"channel_secret,omitzero"       yaml:"channel_secret,omitempty"       env:"REEF_CHANNELS_LINE_CHANNEL_SECRET"`
+	ChannelAccessToken SecureString `json:"channel_access_token,omitzero" yaml:"channel_access_token,omitempty" env:"REEF_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
+	WebhookHost        string       `json:"webhook_host"                  yaml:"-"                              env:"REEF_CHANNELS_LINE_WEBHOOK_HOST"`
+	WebhookPort        int          `json:"webhook_port"                  yaml:"-"                              env:"REEF_CHANNELS_LINE_WEBHOOK_PORT"`
+	WebhookPath        string       `json:"webhook_path"                  yaml:"-"                              env:"REEF_CHANNELS_LINE_WEBHOOK_PATH"`
 }
 
 type OneBotSettings struct {
-	WSUrl              string       `json:"ws_url"                yaml:"-"                      env:"PICOCLAW_CHANNELS_ONEBOT_WS_URL"`
-	AccessToken        SecureString `json:"access_token,omitzero" yaml:"access_token,omitempty" env:"PICOCLAW_CHANNELS_ONEBOT_ACCESS_TOKEN"`
-	ReconnectInterval  int          `json:"reconnect_interval"    yaml:"-"                      env:"PICOCLAW_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
-	GroupTriggerPrefix []string     `json:"group_trigger_prefix"  yaml:"-"                      env:"PICOCLAW_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
+	WSUrl              string       `json:"ws_url"                yaml:"-"                      env:"REEF_CHANNELS_ONEBOT_WS_URL"`
+	AccessToken        SecureString `json:"access_token,omitzero" yaml:"access_token,omitempty" env:"REEF_CHANNELS_ONEBOT_ACCESS_TOKEN"`
+	ReconnectInterval  int          `json:"reconnect_interval"    yaml:"-"                      env:"REEF_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
+	GroupTriggerPrefix []string     `json:"group_trigger_prefix"  yaml:"-"                      env:"REEF_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
 }
 
 type WeComGroupConfig struct {
@@ -488,11 +488,11 @@ func (c *WeComSettings) SetSecret(secret string) {
 }
 
 type WeixinSettings struct {
-	Token      SecureString `json:"token,omitzero"       yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_WEIXIN_TOKEN"`
-	AccountID  string       `json:"account_id,omitempty" yaml:"-"               env:"PICOCLAW_CHANNELS_WEIXIN_ACCOUNT_ID"`
-	BaseURL    string       `json:"base_url"             yaml:"-"               env:"PICOCLAW_CHANNELS_WEIXIN_BASE_URL"`
-	CDNBaseURL string       `json:"cdn_base_url"         yaml:"-"               env:"PICOCLAW_CHANNELS_WEIXIN_CDN_BASE_URL"`
-	Proxy      string       `json:"proxy"                yaml:"-"               env:"PICOCLAW_CHANNELS_WEIXIN_PROXY"`
+	Token      SecureString `json:"token,omitzero"       yaml:"token,omitempty" env:"REEF_CHANNELS_WEIXIN_TOKEN"`
+	AccountID  string       `json:"account_id,omitempty" yaml:"-"               env:"REEF_CHANNELS_WEIXIN_ACCOUNT_ID"`
+	BaseURL    string       `json:"base_url"             yaml:"-"               env:"REEF_CHANNELS_WEIXIN_BASE_URL"`
+	CDNBaseURL string       `json:"cdn_base_url"         yaml:"-"               env:"REEF_CHANNELS_WEIXIN_CDN_BASE_URL"`
+	Proxy      string       `json:"proxy"                yaml:"-"               env:"REEF_CHANNELS_WEIXIN_PROXY"`
 }
 
 // SetToken sets the Weixin token and marks it as dirty for security saving
@@ -501,7 +501,7 @@ func (c *WeixinSettings) SetToken(token string) {
 }
 
 type PicoSettings struct {
-	Token           SecureString `json:"token,omitzero"              yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_PICO_TOKEN"`
+	Token           SecureString `json:"token,omitzero"              yaml:"token,omitempty" env:"REEF_CHANNELS_PICO_TOKEN"`
 	AllowTokenQuery bool         `json:"allow_token_query,omitempty" yaml:"-"`
 	AllowOrigins    []string     `json:"allow_origins,omitempty"     yaml:"-"`
 	PingInterval    int          `json:"ping_interval,omitempty"     yaml:"-"`
@@ -516,30 +516,30 @@ func (c *PicoSettings) SetToken(token string) {
 }
 
 type PicoClientSettings struct {
-	URL          string       `json:"url"                     yaml:"-"               env:"PICOCLAW_CHANNELS_PICO_CLIENT_URL"`
-	Token        SecureString `json:"token,omitzero"          yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_PICO_CLIENT_TOKEN"`
+	URL          string       `json:"url"                     yaml:"-"               env:"REEF_CHANNELS_PICO_CLIENT_URL"`
+	Token        SecureString `json:"token,omitzero"          yaml:"token,omitempty" env:"REEF_CHANNELS_PICO_CLIENT_TOKEN"`
 	SessionID    string       `json:"session_id,omitempty"    yaml:"-"`
 	PingInterval int          `json:"ping_interval,omitempty" yaml:"-"`
 	ReadTimeout  int          `json:"read_timeout,omitempty"  yaml:"-"`
 }
 
 type IRCSettings struct {
-	Server           string              `json:"server"                     yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_SERVER"`
-	TLS              bool                `json:"tls"                        yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_TLS"`
-	Nick             string              `json:"nick"                       yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_NICK"`
-	User             string              `json:"user,omitempty"             yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_USER"`
+	Server           string              `json:"server"                     yaml:"-"                           env:"REEF_CHANNELS_IRC_SERVER"`
+	TLS              bool                `json:"tls"                        yaml:"-"                           env:"REEF_CHANNELS_IRC_TLS"`
+	Nick             string              `json:"nick"                       yaml:"-"                           env:"REEF_CHANNELS_IRC_NICK"`
+	User             string              `json:"user,omitempty"             yaml:"-"                           env:"REEF_CHANNELS_IRC_USER"`
 	RealName         string              `json:"real_name,omitempty"        yaml:"-"`
-	Password         SecureString        `json:"password,omitzero"          yaml:"password,omitempty"          env:"PICOCLAW_CHANNELS_IRC_PASSWORD"`
-	NickServPassword SecureString        `json:"nickserv_password,omitzero" yaml:"nickserv_password,omitempty" env:"PICOCLAW_CHANNELS_IRC_NICKSERV_PASSWORD"`
-	SASLUser         string              `json:"sasl_user"                  yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_SASL_USER"`
-	SASLPassword     SecureString        `json:"sasl_password,omitzero"     yaml:"sasl_password,omitempty"     env:"PICOCLAW_CHANNELS_IRC_SASL_PASSWORD"`
-	Channels         FlexibleStringSlice `json:"channels"                   yaml:"-"                           env:"PICOCLAW_CHANNELS_IRC_CHANNELS"`
+	Password         SecureString        `json:"password,omitzero"          yaml:"password,omitempty"          env:"REEF_CHANNELS_IRC_PASSWORD"`
+	NickServPassword SecureString        `json:"nickserv_password,omitzero" yaml:"nickserv_password,omitempty" env:"REEF_CHANNELS_IRC_NICKSERV_PASSWORD"`
+	SASLUser         string              `json:"sasl_user"                  yaml:"-"                           env:"REEF_CHANNELS_IRC_SASL_USER"`
+	SASLPassword     SecureString        `json:"sasl_password,omitzero"     yaml:"sasl_password,omitempty"     env:"REEF_CHANNELS_IRC_SASL_PASSWORD"`
+	Channels         FlexibleStringSlice `json:"channels"                   yaml:"-"                           env:"REEF_CHANNELS_IRC_CHANNELS"`
 	RequestCaps      FlexibleStringSlice `json:"request_caps,omitempty"     yaml:"-"`
 }
 
 type VKSettings struct {
-	Token   SecureString `json:"token,omitzero" yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_VK_TOKEN"`
-	GroupID int          `json:"group_id"       yaml:"-"               env:"PICOCLAW_CHANNELS_VK_GROUP_ID"`
+	Token   SecureString `json:"token,omitzero" yaml:"token,omitempty" env:"REEF_CHANNELS_VK_TOKEN"`
+	GroupID int          `json:"group_id"       yaml:"-"               env:"REEF_CHANNELS_VK_GROUP_ID"`
 }
 
 func (c *VKSettings) SetToken(token string) {
@@ -559,20 +559,20 @@ type TeamsWebhookTarget struct {
 }
 
 type HeartbeatConfig struct {
-	Enabled  bool `json:"enabled"  env:"PICOCLAW_HEARTBEAT_ENABLED"`
-	Interval int  `json:"interval" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
+	Enabled  bool `json:"enabled"  env:"REEF_HEARTBEAT_ENABLED"`
+	Interval int  `json:"interval" env:"REEF_HEARTBEAT_INTERVAL"` // minutes, min 5
 }
 
 type DevicesConfig struct {
-	Enabled    bool `json:"enabled"     env:"PICOCLAW_DEVICES_ENABLED"`
-	MonitorUSB bool `json:"monitor_usb" env:"PICOCLAW_DEVICES_MONITOR_USB"`
+	Enabled    bool `json:"enabled"     env:"REEF_DEVICES_ENABLED"`
+	MonitorUSB bool `json:"monitor_usb" env:"REEF_DEVICES_MONITOR_USB"`
 }
 
 type VoiceConfig struct {
-	ModelName         string `json:"model_name,omitempty"         env:"PICOCLAW_VOICE_MODEL_NAME"`
-	TTSModelName      string `json:"tts_model_name,omitempty"     env:"PICOCLAW_VOICE_TTS_MODEL_NAME"`
-	EchoTranscription bool   `json:"echo_transcription"           env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
-	ElevenLabsAPIKey  string `json:"elevenlabs_api_key,omitempty" env:"PICOCLAW_VOICE_ELEVENLABS_API_KEY"`
+	ModelName         string `json:"model_name,omitempty"         env:"REEF_VOICE_MODEL_NAME"`
+	TTSModelName      string `json:"tts_model_name,omitempty"     env:"REEF_VOICE_TTS_MODEL_NAME"`
+	EchoTranscription bool   `json:"echo_transcription"           env:"REEF_VOICE_ECHO_TRANSCRIPTION"`
+	ElevenLabsAPIKey  string `json:"elevenlabs_api_key,omitempty" env:"REEF_VOICE_ELEVENLABS_API_KEY"`
 }
 
 // ModelConfig represents a model-centric provider configuration.
@@ -653,11 +653,11 @@ func (c *ModelConfig) SetAPIKey(value string) {
 }
 
 type ToolDiscoveryConfig struct {
-	Enabled          bool `json:"enabled"            env:"PICOCLAW_TOOLS_DISCOVERY_ENABLED"`
-	TTL              int  `json:"ttl"                env:"PICOCLAW_TOOLS_DISCOVERY_TTL"`
-	MaxSearchResults int  `json:"max_search_results" env:"PICOCLAW_MAX_SEARCH_RESULTS"`
-	UseBM25          bool `json:"use_bm25"           env:"PICOCLAW_TOOLS_DISCOVERY_USE_BM25"`
-	UseRegex         bool `json:"use_regex"          env:"PICOCLAW_TOOLS_DISCOVERY_USE_REGEX"`
+	Enabled          bool `json:"enabled"            env:"REEF_TOOLS_DISCOVERY_ENABLED"`
+	TTL              int  `json:"ttl"                env:"REEF_TOOLS_DISCOVERY_TTL"`
+	MaxSearchResults int  `json:"max_search_results" env:"REEF_MAX_SEARCH_RESULTS"`
+	UseBM25          bool `json:"use_bm25"           env:"REEF_TOOLS_DISCOVERY_USE_BM25"`
+	UseRegex         bool `json:"use_regex"          env:"REEF_TOOLS_DISCOVERY_USE_REGEX"`
 }
 
 type ToolConfig struct {
@@ -665,9 +665,9 @@ type ToolConfig struct {
 }
 
 type BraveConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_MAX_RESULTS"`
+	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"REEF_TOOLS_WEB_BRAVE_ENABLED"`
+	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"REEF_TOOLS_WEB_BRAVE_API_KEYS"`
+	MaxResults int           `json:"max_results"       yaml:"-"                  env:"REEF_TOOLS_WEB_BRAVE_MAX_RESULTS"`
 }
 
 // APIKey returns the Brave API key
@@ -688,10 +688,10 @@ func (c *BraveConfig) SetAPIKeys(keys []string) {
 }
 
 type TavilyConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_API_KEYS"`
-	BaseURL    string        `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"REEF_TOOLS_WEB_TAVILY_ENABLED"`
+	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"REEF_TOOLS_WEB_TAVILY_API_KEYS"`
+	BaseURL    string        `json:"base_url"          yaml:"-"                  env:"REEF_TOOLS_WEB_TAVILY_BASE_URL"`
+	MaxResults int           `json:"max_results"       yaml:"-"                  env:"REEF_TOOLS_WEB_TAVILY_MAX_RESULTS"`
 }
 
 // APIKey returns the Tavily API key
@@ -716,19 +716,19 @@ func (c *TavilyConfig) SetAPIKeys(keys []string) {
 }
 
 type DuckDuckGoConfig struct {
-	Enabled    bool `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
-	MaxResults int  `json:"max_results" env:"PICOCLAW_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
+	Enabled    bool `json:"enabled"     env:"REEF_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
+	MaxResults int  `json:"max_results" env:"REEF_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
 }
 
 type SogouConfig struct {
-	Enabled    bool `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_SOGOU_ENABLED"`
-	MaxResults int  `json:"max_results" env:"PICOCLAW_TOOLS_WEB_SOGOU_MAX_RESULTS"`
+	Enabled    bool `json:"enabled"     env:"REEF_TOOLS_WEB_SOGOU_ENABLED"`
+	MaxResults int  `json:"max_results" env:"REEF_TOOLS_WEB_SOGOU_MAX_RESULTS"`
 }
 
 type PerplexityConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_API_KEYS"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
+	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"REEF_TOOLS_WEB_PERPLEXITY_ENABLED"`
+	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"REEF_TOOLS_WEB_PERPLEXITY_API_KEYS"`
+	MaxResults int           `json:"max_results"       yaml:"-"                  env:"REEF_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
 }
 
 // APIKey returns the Perplexity API key
@@ -745,30 +745,30 @@ func (c *PerplexityConfig) SetAPIKey(key string) {
 }
 
 type SearXNGConfig struct {
-	Enabled    bool   `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_SEARXNG_ENABLED"`
-	BaseURL    string `json:"base_url"    env:"PICOCLAW_TOOLS_WEB_SEARXNG_BASE_URL"`
-	MaxResults int    `json:"max_results" env:"PICOCLAW_TOOLS_WEB_SEARXNG_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled"     env:"REEF_TOOLS_WEB_SEARXNG_ENABLED"`
+	BaseURL    string `json:"base_url"    env:"REEF_TOOLS_WEB_SEARXNG_BASE_URL"`
+	MaxResults int    `json:"max_results" env:"REEF_TOOLS_WEB_SEARXNG_MAX_RESULTS"`
 }
 
 type GLMSearchConfig struct {
-	Enabled bool         `json:"enabled"          yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_GLM_ENABLED"`
-	APIKey  SecureString `json:"api_key,omitzero" yaml:"api_key,omitempty" env:"PICOCLAW_TOOLS_WEB_GLM_API_KEY"`
-	BaseURL string       `json:"base_url"         yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_GLM_BASE_URL"`
+	Enabled bool         `json:"enabled"          yaml:"-"                 env:"REEF_TOOLS_WEB_GLM_ENABLED"`
+	APIKey  SecureString `json:"api_key,omitzero" yaml:"api_key,omitempty" env:"REEF_TOOLS_WEB_GLM_API_KEY"`
+	BaseURL string       `json:"base_url"         yaml:"-"                 env:"REEF_TOOLS_WEB_GLM_BASE_URL"`
 	// SearchEngine specifies the search backend: "search_std" (default),
 	// "search_pro", "search_pro_sogou", or "search_pro_quark".
-	SearchEngine string `json:"search_engine" yaml:"-" env:"PICOCLAW_TOOLS_WEB_GLM_SEARCH_ENGINE"`
-	MaxResults   int    `json:"max_results"   yaml:"-" env:"PICOCLAW_TOOLS_WEB_GLM_MAX_RESULTS"`
+	SearchEngine string `json:"search_engine" yaml:"-" env:"REEF_TOOLS_WEB_GLM_SEARCH_ENGINE"`
+	MaxResults   int    `json:"max_results"   yaml:"-" env:"REEF_TOOLS_WEB_GLM_MAX_RESULTS"`
 }
 
 type BaiduSearchConfig struct {
-	Enabled    bool         `json:"enabled"          yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_BAIDU_ENABLED"`
-	APIKey     SecureString `json:"api_key,omitzero" yaml:"api_key,omitempty" env:"PICOCLAW_TOOLS_WEB_BAIDU_API_KEY"`
-	BaseURL    string       `json:"base_url"         yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_BAIDU_BASE_URL"`
-	MaxResults int          `json:"max_results"      yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_BAIDU_MAX_RESULTS"`
+	Enabled    bool         `json:"enabled"          yaml:"-"                 env:"REEF_TOOLS_WEB_BAIDU_ENABLED"`
+	APIKey     SecureString `json:"api_key,omitzero" yaml:"api_key,omitempty" env:"REEF_TOOLS_WEB_BAIDU_API_KEY"`
+	BaseURL    string       `json:"base_url"         yaml:"-"                 env:"REEF_TOOLS_WEB_BAIDU_BASE_URL"`
+	MaxResults int          `json:"max_results"      yaml:"-"                 env:"REEF_TOOLS_WEB_BAIDU_MAX_RESULTS"`
 }
 
 type WebToolsConfig struct {
-	ToolConfig  `                  yaml:"-"                      envPrefix:"PICOCLAW_TOOLS_WEB_"`
+	ToolConfig  `                  yaml:"-"                      envPrefix:"REEF_TOOLS_WEB_"`
 	Brave       BraveConfig       `yaml:"brave,omitempty"                                        json:"brave"`
 	Tavily      TavilyConfig      `yaml:"tavily,omitempty"                                       json:"tavily"`
 	Sogou       SogouConfig       `yaml:"-"                                                      json:"sogou"`
@@ -777,49 +777,49 @@ type WebToolsConfig struct {
 	SearXNG     SearXNGConfig     `yaml:"-"                                                      json:"searxng"`
 	GLMSearch   GLMSearchConfig   `yaml:"glm_search,omitempty"                                   json:"glm_search"`
 	BaiduSearch BaiduSearchConfig `yaml:"baidu_search,omitempty"                                 json:"baidu_search"`
-	Provider    string            `yaml:"-"                                                      json:"provider,omitempty" env:"PICOCLAW_TOOLS_WEB_PROVIDER"`
+	Provider    string            `yaml:"-"                                                      json:"provider,omitempty" env:"REEF_TOOLS_WEB_PROVIDER"`
 	// PreferNative controls whether to use provider-native web search when
 	// the active LLM supports it (e.g. OpenAI web_search_preview). When true,
 	// the client-side web_search tool is hidden to avoid duplicate search surfaces,
 	// and the provider's built-in search is used instead. Falls back to client-side
 	// search when the provider does not support native search.
-	PreferNative bool `yaml:"-" json:"prefer_native" env:"PICOCLAW_TOOLS_WEB_PREFER_NATIVE"`
+	PreferNative bool `yaml:"-" json:"prefer_native" env:"REEF_TOOLS_WEB_PREFER_NATIVE"`
 	// Proxy is an optional proxy URL for web tools (http/https/socks5/socks5h).
 	// For authenticated proxies, prefer HTTP_PROXY/HTTPS_PROXY env vars instead of embedding credentials in config.
-	Proxy                string              `yaml:"-" json:"proxy,omitempty"                  env:"PICOCLAW_TOOLS_WEB_PROXY"`
-	FetchLimitBytes      int64               `yaml:"-" json:"fetch_limit_bytes,omitempty"      env:"PICOCLAW_TOOLS_WEB_FETCH_LIMIT_BYTES"`
-	Format               string              `yaml:"-" json:"format,omitempty"                 env:"PICOCLAW_TOOLS_WEB_FORMAT"`
-	PrivateHostWhitelist FlexibleStringSlice `yaml:"-" json:"private_host_whitelist,omitempty" env:"PICOCLAW_TOOLS_WEB_PRIVATE_HOST_WHITELIST"`
+	Proxy                string              `yaml:"-" json:"proxy,omitempty"                  env:"REEF_TOOLS_WEB_PROXY"`
+	FetchLimitBytes      int64               `yaml:"-" json:"fetch_limit_bytes,omitempty"      env:"REEF_TOOLS_WEB_FETCH_LIMIT_BYTES"`
+	Format               string              `yaml:"-" json:"format,omitempty"                 env:"REEF_TOOLS_WEB_FORMAT"`
+	PrivateHostWhitelist FlexibleStringSlice `yaml:"-" json:"private_host_whitelist,omitempty" env:"REEF_TOOLS_WEB_PRIVATE_HOST_WHITELIST"`
 }
 
 type CronToolsConfig struct {
-	ToolConfig         `     envPrefix:"PICOCLAW_TOOLS_CRON_"`
-	ExecTimeoutMinutes int  `                                 json:"exec_timeout_minutes" env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
-	AllowCommand       bool `                                 json:"allow_command"        env:"PICOCLAW_TOOLS_CRON_ALLOW_COMMAND"`
+	ToolConfig         `     envPrefix:"REEF_TOOLS_CRON_"`
+	ExecTimeoutMinutes int  `                                 json:"exec_timeout_minutes" env:"REEF_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
+	AllowCommand       bool `                                 json:"allow_command"        env:"REEF_TOOLS_CRON_ALLOW_COMMAND"`
 }
 
 type ExecConfig struct {
-	ToolConfig          `         envPrefix:"PICOCLAW_TOOLS_EXEC_"`
-	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	AllowRemote         bool     `                                 json:"allow_remote"          env:"PICOCLAW_TOOLS_EXEC_ALLOW_REMOTE"`
-	CustomDenyPatterns  []string `                                 json:"custom_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns []string `                                 json:"custom_allow_patterns" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                 json:"timeout_seconds"       env:"PICOCLAW_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	ToolConfig          `         envPrefix:"REEF_TOOLS_EXEC_"`
+	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"REEF_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	AllowRemote         bool     `                                 json:"allow_remote"          env:"REEF_TOOLS_EXEC_ALLOW_REMOTE"`
+	CustomDenyPatterns  []string `                                 json:"custom_deny_patterns"  env:"REEF_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	CustomAllowPatterns []string `                                 json:"custom_allow_patterns" env:"REEF_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	TimeoutSeconds      int      `                                 json:"timeout_seconds"       env:"REEF_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
 }
 
 type SkillsToolsConfig struct {
-	ToolConfig `                       yaml:"-"                    envPrefix:"PICOCLAW_TOOLS_SKILLS_"`
+	ToolConfig `                       yaml:"-"                    envPrefix:"REEF_TOOLS_SKILLS_"`
 	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                    json:"registries"`
 	// Deprecated: use registries.github instead.
 	Github                SkillsGithubConfig `yaml:"github,omitempty" json:"github"`
-	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"PICOCLAW_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
+	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"REEF_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
 	SearchCache           SearchCacheConfig  `yaml:"-"                json:"search_cache"`
 }
 
 type MediaCleanupConfig struct {
-	ToolConfig `    envPrefix:"PICOCLAW_MEDIA_CLEANUP_"`
-	MaxAge     int `                                    json:"max_age_minutes"  env:"PICOCLAW_MEDIA_CLEANUP_MAX_AGE"`
-	Interval   int `                                    json:"interval_minutes" env:"PICOCLAW_MEDIA_CLEANUP_INTERVAL"`
+	ToolConfig `    envPrefix:"REEF_MEDIA_CLEANUP_"`
+	MaxAge     int `                                    json:"max_age_minutes"  env:"REEF_MEDIA_CLEANUP_MAX_AGE"`
+	Interval   int `                                    json:"interval_minutes" env:"REEF_MEDIA_CLEANUP_INTERVAL"`
 }
 
 type ReadFileToolConfig struct {
@@ -845,38 +845,38 @@ func (c ReadFileToolConfig) EffectiveMode() string {
 }
 
 type ToolsConfig struct {
-	AllowReadPaths  []string `json:"allow_read_paths"  yaml:"-" env:"PICOCLAW_TOOLS_ALLOW_READ_PATHS"`
-	AllowWritePaths []string `json:"allow_write_paths" yaml:"-" env:"PICOCLAW_TOOLS_ALLOW_WRITE_PATHS"`
+	AllowReadPaths  []string `json:"allow_read_paths"  yaml:"-" env:"REEF_TOOLS_ALLOW_READ_PATHS"`
+	AllowWritePaths []string `json:"allow_write_paths" yaml:"-" env:"REEF_TOOLS_ALLOW_WRITE_PATHS"`
 	// FilterSensitiveData controls whether to filter sensitive values (API keys,
 	// tokens, secrets) from tool results before sending to the LLM.
 	// Default: true (enabled)
-	FilterSensitiveData bool `json:"filter_sensitive_data" yaml:"-" env:"PICOCLAW_TOOLS_FILTER_SENSITIVE_DATA"`
+	FilterSensitiveData bool `json:"filter_sensitive_data" yaml:"-" env:"REEF_TOOLS_FILTER_SENSITIVE_DATA"`
 	// FilterMinLength is the minimum content length required for filtering.
 	// Content shorter than this will be returned unchanged for performance.
 	// Default: 8
-	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"PICOCLAW_TOOLS_FILTER_MIN_LENGTH"`
+	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"REEF_TOOLS_FILTER_MIN_LENGTH"`
 	Web             WebToolsConfig     `json:"web"               yaml:"web,omitempty"`
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_I2C_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LIST_DIR_"`
-	Message         ToolConfig         `json:"message"           yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_MESSAGE_"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_FILE_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_STATUS_"`
-	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPI_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
+	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"REEF_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"REEF_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"REEF_TOOLS_FIND_SKILLS_"`
+	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"REEF_TOOLS_I2C_"`
+	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"REEF_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"REEF_TOOLS_LIST_DIR_"`
+	Message         ToolConfig         `json:"message"           yaml:"-"                                                       envPrefix:"REEF_TOOLS_MESSAGE_"`
+	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"REEF_TOOLS_READ_FILE_"`
+	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"REEF_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"REEF_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"REEF_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"REEF_TOOLS_SPAWN_STATUS_"`
+	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"REEF_TOOLS_SPI_"`
+	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"REEF_TOOLS_SUBAGENT_"`
+	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"REEF_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"REEF_TOOLS_WRITE_FILE_"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -893,8 +893,8 @@ func (c *ToolsConfig) GetFilterMinLength() int {
 }
 
 type SearchCacheConfig struct {
-	MaxSize    int `json:"max_size"    env:"PICOCLAW_SKILLS_SEARCH_CACHE_MAX_SIZE"`
-	TTLSeconds int `json:"ttl_seconds" env:"PICOCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
+	MaxSize    int `json:"max_size"    env:"REEF_SKILLS_SEARCH_CACHE_MAX_SIZE"`
+	TTLSeconds int `json:"ttl_seconds" env:"REEF_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
 }
 
 type SkillsRegistriesConfig []*SkillRegistryConfig
@@ -936,9 +936,9 @@ func (c *SkillsRegistriesConfig) Set(name string, cfg SkillRegistryConfig) {
 }
 
 type SkillsGithubConfig struct {
-	BaseURL string       `json:"base_url,omitempty" yaml:"-"               env:"PICOCLAW_TOOLS_SKILLS_GITHUB_BASE_URL"`
-	Token   SecureString `json:"token,omitzero"     yaml:"token,omitempty" env:"PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN"`
-	Proxy   string       `json:"proxy,omitempty"    yaml:"-"               env:"PICOCLAW_TOOLS_SKILLS_GITHUB_PROXY"`
+	BaseURL string       `json:"base_url,omitempty" yaml:"-"               env:"REEF_TOOLS_SKILLS_GITHUB_BASE_URL"`
+	Token   SecureString `json:"token,omitzero"     yaml:"token,omitempty" env:"REEF_TOOLS_SKILLS_GITHUB_TOKEN"`
+	Proxy   string       `json:"proxy,omitempty"    yaml:"-"               env:"REEF_TOOLS_SKILLS_GITHUB_PROXY"`
 }
 
 type SkillRegistryConfig struct {
@@ -950,19 +950,19 @@ type SkillRegistryConfig struct {
 }
 
 const (
-	envSkillsClawHubEnabled         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"
-	envSkillsClawHubBaseURL         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"
-	envSkillsClawHubAuthToken       = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"
-	envSkillsClawHubSearchPath      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"
-	envSkillsClawHubSkillsPath      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"
-	envSkillsClawHubDownloadPath    = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"
-	envSkillsClawHubTimeout         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"
-	envSkillsClawHubMaxZipSize      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"
-	envSkillsClawHubMaxResponseSize = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"
-	envSkillsGitHubEnabled          = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_ENABLED"
-	envSkillsGitHubBaseURL          = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_BASE_URL"
-	envSkillsGitHubAuthToken        = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_AUTH_TOKEN"
-	envSkillsGitHubProxy            = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_PROXY"
+	envSkillsClawHubEnabled         = "REEF_SKILLS_REGISTRIES_CLAWHUB_ENABLED"
+	envSkillsClawHubBaseURL         = "REEF_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"
+	envSkillsClawHubAuthToken       = "REEF_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"
+	envSkillsClawHubSearchPath      = "REEF_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"
+	envSkillsClawHubSkillsPath      = "REEF_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"
+	envSkillsClawHubDownloadPath    = "REEF_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"
+	envSkillsClawHubTimeout         = "REEF_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"
+	envSkillsClawHubMaxZipSize      = "REEF_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"
+	envSkillsClawHubMaxResponseSize = "REEF_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"
+	envSkillsGitHubEnabled          = "REEF_SKILLS_REGISTRIES_GITHUB_ENABLED"
+	envSkillsGitHubBaseURL          = "REEF_SKILLS_REGISTRIES_GITHUB_BASE_URL"
+	envSkillsGitHubAuthToken        = "REEF_SKILLS_REGISTRIES_GITHUB_AUTH_TOKEN"
+	envSkillsGitHubProxy            = "REEF_SKILLS_REGISTRIES_GITHUB_PROXY"
 )
 
 func (c *SkillRegistryConfig) DecodeParam(target any) error {
@@ -1005,10 +1005,10 @@ type MCPServerConfig struct {
 
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
-	ToolConfig `                    envPrefix:"PICOCLAW_TOOLS_MCP_"`
+	ToolConfig `                    envPrefix:"REEF_TOOLS_MCP_"`
 	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
-	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"PICOCLAW_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
+	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"REEF_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
 	// Servers is a map of server name to server configuration
 	Servers map[string]MCPServerConfig `json:"servers,omitempty"`
 }

@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 //
 // Package agent provides the Hermes capability architecture for
 // constraining AgentLoop behavior based on its operational role.
@@ -16,14 +16,14 @@ type HermesMode string
 
 const (
 	// HermesFull is the default mode — single-client, no constraints.
-	// Triggered by: picoclaw / picoclaw gateway
+	// Triggered by: reef / reef gateway
 	HermesFull HermesMode = "full"
 
 	// HermesCoordinator is the server/coordinator mode — only
 	// coordination tools (reef_submit, reef_query, reef_status,
 	// message, reaction, cron) are available. The LLM acts as a
 	// team coordinator that delegates work to connected clients.
-	// Triggered by: picoclaw server
+	// Triggered by: reef server
 	HermesCoordinator HermesMode = "coordinator"
 
 	// HermesExecutor is the client/executor mode — all tools are

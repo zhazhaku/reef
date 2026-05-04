@@ -88,11 +88,16 @@ func (s *Scheduler) Submit(task *reef.Task) error {
 }
 
 // TryDispatch attempts to match and dispatch the next task from the queue.
+// It scans through queued tasks and dispatches all that can be matched,
+// skipping tasks with no available client (preventing head-of-line blocking).
 func (s *Scheduler) TryDispatch() {
+	// Collect tasks that can't be dispatched right now
+	var unmatchable []*reef.Task
+
 	for {
 		task := s.queue.Peek()
 		if task == nil {
-			return
+			break
 		}
 
 		excludeID := ""
@@ -105,15 +110,24 @@ func (s *Scheduler) TryDispatch() {
 
 		client := s.matchClient(task, excludeID)
 		if client == nil {
-			return
+			// Can't match this task right now — remove from queue and hold aside
+			_ = s.queue.Dequeue()
+			unmatchable = append(unmatchable, task)
+			continue
 		}
 
 		_ = s.queue.Dequeue()
 
 		if err := s.dispatch(task, client); err != nil {
+			// Dispatch failed — re-enqueue this task and stop
 			_ = s.queue.Enqueue(task)
-			return
+			break
 		}
+	}
+
+	// Put unmatchable tasks back into the queue (preserving order)
+	for _, t := range unmatchable {
+		_ = s.queue.Enqueue(t)
 	}
 }
 
@@ -123,18 +137,36 @@ func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientI
 	eligible := make([]*reef.ClientInfo, 0, len(candidates))
 	for _, c := range candidates {
 		if c.ID == excludeID {
+			s.logger.Debug("matchClient: excluded client",
+				slog.String("task_id", task.ID), slog.String("client_id", c.ID))
 			continue
 		}
 		if !c.IsAvailable() {
+			s.logger.Debug("matchClient: client not available",
+				slog.String("task_id", task.ID), slog.String("client_id", c.ID),
+				slog.String("state", string(c.State)),
+				slog.Int("load", c.CurrentLoad), slog.Int("capacity", c.Capacity))
 			continue
 		}
 		if !c.Matches(task.RequiredRole, task.RequiredSkills) {
+			s.logger.Warn("matchClient: role/skill mismatch",
+				slog.String("task_id", task.ID),
+				slog.String("client_id", c.ID),
+				slog.String("client_role", c.Role),
+				slog.Any("client_skills", c.Skills),
+				slog.String("required_role", task.RequiredRole),
+				slog.Any("required_skills", task.RequiredSkills))
 			continue
 		}
 		eligible = append(eligible, c)
 	}
 
 	if len(eligible) == 0 {
+		s.logger.Info("matchClient: no eligible clients",
+			slog.String("task_id", task.ID),
+			slog.Int("total_candidates", len(candidates)),
+			slog.String("required_role", task.RequiredRole),
+			slog.Any("required_skills", task.RequiredSkills))
 		return nil
 	}
 
@@ -142,7 +174,12 @@ func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientI
 	if strategy == nil {
 		strategy = &LeastLoadStrategy{}
 	}
-	return strategy.Select(eligible)
+	selected := strategy.Select(eligible)
+	s.logger.Info("matchClient: selected client",
+		slog.String("task_id", task.ID),
+		slog.String("client_id", selected.ID),
+		slog.Int("eligible_count", len(eligible)))
+	return selected
 }
 
 // dispatch assigns a task to a client and updates state.
@@ -169,6 +206,9 @@ func (s *Scheduler) dispatch(task *reef.Task, client *reef.ClientInfo) error {
 }
 
 // HandleTaskCompleted processes a task completion report from a client.
+// If the task was already marked as Failed due to timeout but the client
+// actually completed it, the result is accepted and the task is restored
+// to Completed status (late completion recovery).
 func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -177,29 +217,67 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 	if !ok {
 		return fmt.Errorf("task %s not found", taskID)
 	}
+
+	// Normal path: task is still Running
+	if task.Status == reef.TaskRunning {
+		task.Result = result
+		if err := task.Transition(reef.TaskCompleted); err != nil {
+			return err
+		}
+		s.registry.DecrementLoad(task.AssignedClient)
+		task.AssignedClient = ""
+
+		if s.onTaskStateChanged != nil {
+			s.onTaskStateChanged(task)
+		}
+		if s.resultCallback != nil {
+			s.resultCallback(task, result, nil)
+		}
+		go s.TryDispatch()
+		return nil
+	}
+
+	// Late completion recovery: task was timed out / paused but client finished
+	if task.Status == reef.TaskFailed || task.Status == reef.TaskPaused {
+		s.logger.Info("late completion: recovering task from terminal state",
+			slog.String("task_id", taskID),
+			slog.String("was_status", string(task.Status)))
+
+		// Overwrite the timeout/failure result with the actual result
+		task.Result = result
+		task.Error = nil // clear timeout error — task actually succeeded
+
+		// Force transition: Failed/Paused → Queued → Completed
+		// We can't go directly Failed → Completed, so we reset through Queued
+		task.Status = reef.TaskQueued
+		if err := task.Transition(reef.TaskCompleted); err != nil {
+			// If that still fails, force-set the status
+			s.logger.Warn("late completion: transition failed, force-setting status",
+				slog.String("task_id", taskID),
+				slog.String("error", err.Error()))
+			task.Status = reef.TaskCompleted
+			now := time.Now()
+			task.CompletedAt = &now
+		}
+
+		s.registry.DecrementLoad(task.AssignedClient)
+		task.AssignedClient = ""
+
+		if s.onTaskStateChanged != nil {
+			s.onTaskStateChanged(task)
+		}
+		if s.resultCallback != nil {
+			s.resultCallback(task, result, nil)
+		}
+		return nil
+	}
+
+	// Already terminal (Completed/Cancelled) — idempotent no-op
 	if task.Status.IsTerminal() {
-		return nil // idempotent
-	}
-	if task.Status != reef.TaskRunning {
-		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+		return nil
 	}
 
-	task.Result = result
-	if err := task.Transition(reef.TaskCompleted); err != nil {
-		return err
-	}
-	s.registry.DecrementLoad(task.AssignedClient)
-	task.AssignedClient = ""
-
-	if s.onTaskStateChanged != nil {
-		s.onTaskStateChanged(task)
-	}
-	if s.resultCallback != nil {
-		s.resultCallback(task, result, nil)
-	}
-
-	go s.TryDispatch()
-	return nil
+	return fmt.Errorf("task %s in unexpected state %s", taskID, task.Status)
 }
 
 // HandleTaskFailed processes a task failure report from a client.
@@ -297,6 +375,69 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		s.resultCallback(task, nil, taskErr)
 	}
 
+	return nil
+}
+
+// HandleTaskTimedOut marks a running task as failed due to timeout.
+// This method is safe to call from any goroutine (e.g., TimeoutScanner).
+func (s *Scheduler) HandleTaskTimedOut(taskID string, elapsed time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status.IsTerminal() {
+		return nil // already terminal — no-op
+	}
+	if task.Status != reef.TaskRunning {
+		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+	}
+
+	task.Error = &reef.TaskError{
+		Type:    "timeout",
+		Message: "task exceeded timeout",
+		Detail:  "elapsed: " + elapsed.String(),
+	}
+	_ = task.Transition(reef.TaskFailed)
+	s.registry.DecrementLoad(task.AssignedClient)
+	task.AssignedClient = ""
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	if s.resultCallback != nil {
+		s.resultCallback(task, nil, task.Error)
+	}
+
+	go s.TryDispatch()
+	return nil
+}
+
+// HandleTaskPaused marks a running task as paused (e.g., due to client disconnect).
+// This method is safe to call from any goroutine (e.g., heartbeatScanner).
+func (s *Scheduler) HandleTaskPaused(taskID string, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status.IsTerminal() {
+		return nil
+	}
+	if task.Status != reef.TaskRunning {
+		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+	}
+
+	_ = task.Transition(reef.TaskPaused)
+	task.PauseReason = reason
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
 	return nil
 }
 

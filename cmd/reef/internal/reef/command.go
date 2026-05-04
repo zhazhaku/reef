@@ -1,4 +1,4 @@
-// Package reef implements the `picoclaw reef` subcommands for interacting
+// Package reef implements the `reef reef` subcommands for interacting
 // with a running Reef Server (status, task management, etc.).
 package reef
 
@@ -205,7 +205,7 @@ func newTasksCommand() *cobra.Command {
 		Short: "List tasks on the Reef Server",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			url := serverURL + "/admin/tasks"
+			url := serverURL + "/tasks"
 			if roleFilter != "" || statusFilter != "" {
 				url += "?"
 				if roleFilter != "" {
@@ -323,7 +323,7 @@ func newSubmitCommand() *cobra.Command {
 				"max_retries":     2,
 			})
 
-			url := serverURL + "/admin/tasks"
+			url := serverURL + "/tasks"
 			req, err := http.NewRequest(http.MethodPost, url, jsonBodyReader(body))
 			if err != nil {
 				return err

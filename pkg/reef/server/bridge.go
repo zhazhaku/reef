@@ -3,7 +3,7 @@
 //
 // ServerBridge implements reef.ReefBridge by delegating to the
 // in-process Scheduler and Registry. Used when the AgentLoop
-// runs in the same process as the Reef Server (picoclaw server mode).
+// runs in the same process as the Reef Server (reef server mode).
 
 package server
 

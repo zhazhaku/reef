@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 //
 // Package reef provides the ReefBridge interface that connects the
 // Hermes Coordinator's AgentLoop with the Reef Server's Scheduler.

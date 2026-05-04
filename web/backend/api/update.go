@@ -39,7 +39,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	binary := req.Binary
 	if binary == "" {
-		binary = "picoclaw-launcher"
+		binary = "reef-launcher"
 	}
 
 	if err := updater.UpdateSelfFromRelease(req.URL, "", "", binary); err != nil {

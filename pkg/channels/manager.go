@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 package channels
 
@@ -612,6 +612,14 @@ func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channe
 		return bc, settings.Token.String() != ""
 	case *config.VKSettings:
 		return bc, settings.GroupID != 0 && settings.Token.String() != ""
+	case *config.SwarmSettings:
+		// Server mode: Reef Server is started separately via startReefServerBackground,
+		// skip channel-level initialization.
+		if settings.Mode == "server" {
+			return bc, false
+		}
+		// Client mode: require server_url to connect.
+		return bc, settings.ServerURL != ""
 	}
 
 	return bc, bc.Enabled

@@ -12,10 +12,10 @@ import (
 const DefaultGatewayLogLevel = "warn"
 
 type GatewayConfig struct {
-	Host      string `json:"host"                env:"PICOCLAW_GATEWAY_HOST"`
-	Port      int    `json:"port"                env:"PICOCLAW_GATEWAY_PORT"`
-	HotReload bool   `json:"hot_reload"          env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
-	LogLevel  string `json:"log_level,omitempty" env:"PICOCLAW_LOG_LEVEL"`
+	Host      string `json:"host"                env:"REEF_GATEWAY_HOST"`
+	Port      int    `json:"port"                env:"REEF_GATEWAY_PORT"`
+	HotReload bool   `json:"hot_reload"          env:"REEF_GATEWAY_HOT_RELOAD"`
+	LogLevel  string `json:"log_level,omitempty" env:"REEF_LOG_LEVEL"`
 }
 
 func canonicalGatewayLogLevel(level logger.LogLevel) string {
@@ -78,7 +78,7 @@ func normalizeGatewayHostInput(host string) (string, error) {
 
 // ResolveGatewayLogLevel reads the configured gateway log level without triggering
 // the full config loader, so startup code can apply logging before config load logs run.
-// The PICOCLAW_LOG_LEVEL environment variable overrides the file value.
+// The REEF_LOG_LEVEL environment variable overrides the file value.
 func ResolveGatewayLogLevel(path string) string {
 	cfg := struct {
 		Gateway GatewayConfig `json:"gateway"`
@@ -91,7 +91,7 @@ func ResolveGatewayLogLevel(path string) string {
 		_ = json.Unmarshal(data, &cfg)
 	}
 
-	if envLevel := os.Getenv("PICOCLAW_LOG_LEVEL"); envLevel != "" {
+	if envLevel := os.Getenv("REEF_LOG_LEVEL"); envLevel != "" {
 		cfg.Gateway.LogLevel = envLevel
 	}
 

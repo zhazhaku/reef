@@ -1,5 +1,5 @@
 // Reef - Distributed multi-agent swarm orchestration system
-// Based on Reef (github.com/sipeed/reef)
+// Based on PicoClaw (github.com/sipeed/picoclaw)
 // License: MIT
 //
 // Copyright (c) 2026 Reef contributors

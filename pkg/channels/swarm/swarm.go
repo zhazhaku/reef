@@ -1,4 +1,4 @@
-// Package swarm implements a PicoClaw Channel that connects to a Reef Server
+// Package swarm implements a Reef Channel that connects to a Reef Server
 // over WebSocket, enabling distributed multi-agent task execution.
 package swarm
 
@@ -27,7 +27,7 @@ const (
 	metadataKeyModelHint = "reef_model_hint"
 )
 
-// SwarmChannel bridges PicoClaw's MessageBus with Reef's WebSocket protocol.
+// SwarmChannel bridges Reef's MessageBus with Reef's WebSocket protocol.
 // It implements channels.Channel and agent.EventObserver.
 type SwarmChannel struct {
 	*channels.BaseChannel
@@ -65,6 +65,13 @@ func NewSwarmChannel(
 	cfg *config.SwarmSettings,
 	msgBus *bus.MessageBus,
 ) (*SwarmChannel, error) {
+	// Server mode: the Reef Server runs separately, not as a client channel.
+	// The channel manager should not attempt to initialize swarm in server mode
+	// (getChannelConfigAndEnabled returns false for server mode), but guard here
+	// as a safety net in case the factory is invoked via other paths.
+	if cfg.Mode == "server" {
+		return nil, fmt.Errorf("swarm in server mode should not be initialized as a client channel")
+	}
 	if cfg.ServerURL == "" {
 		return nil, fmt.Errorf("swarm server_url is required")
 	}

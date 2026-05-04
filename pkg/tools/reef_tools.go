@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 //
 // Reef coordination tools for the Hermes Coordinator.
 // These tools allow the Coordinator AgentLoop to delegate tasks
@@ -120,7 +120,7 @@ func (t *ReefSubmitTaskTool) Execute(ctx context.Context, args map[string]any) *
 		}
 	}
 	if timeoutMs <= 0 {
-		timeoutMs = 300_000 // 5 minutes default
+		timeoutMs = 600_000 // 10 minutes default
 	}
 
 	replyToChannel, _ := args["reply_to_channel"].(string)

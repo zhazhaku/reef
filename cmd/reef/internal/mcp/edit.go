@@ -14,7 +14,7 @@ import (
 func newEditCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",
-		Short: "Open the PicoClaw config in $EDITOR",
+		Short: "Open the Reef config in $EDITOR",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			editor := strings.TrimSpace(os.Getenv("EDITOR"))

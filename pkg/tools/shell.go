@@ -476,10 +476,17 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	}
 
 	var cmd *exec.Cmd
+	// Apply timeout via context, matching runSync behavior
+	cmdCtx := ctx
+	if t.timeout > 0 {
+		var cancel context.CancelFunc
+		cmdCtx, cancel = context.WithTimeout(ctx, t.timeout)
+		defer cancel()
+	}
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", command)
+		cmd = exec.CommandContext(cmdCtx, "powershell", "-NoProfile", "-NonInteractive", "-Command", command)
 	} else {
-		cmd = exec.Command("sh", "-c", command)
+		cmd = exec.CommandContext(cmdCtx, "sh", "-c", command)
 	}
 	if cwd != "" {
 		cmd.Dir = cwd

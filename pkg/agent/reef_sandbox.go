@@ -8,7 +8,7 @@ import (
 )
 
 // ReefSandboxFactory creates a client.Sandbox backed by a TaskSandbox.
-// This bridges picoclaw's cognitive sandbox into the reef client's Sandbox interface.
+// This bridges reef's cognitive sandbox into the reef client's Sandbox interface.
 func ReefSandboxFactory(taskID, baseDir string) (client.Sandbox, error) {
 	workDir := filepath.Join(baseDir, "sandbox-"+taskID)
 	if err := os.MkdirAll(workDir, 0o700); err != nil {

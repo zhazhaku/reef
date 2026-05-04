@@ -1,13 +1,13 @@
-// PicoClaw Web Console - Web-based chat and management interface
+// Reef Web Console - Web-based chat and management interface
 //
-// Provides a web UI for chatting with PicoClaw via the Pico Channel WebSocket,
+// Provides a web UI for chatting with Reef via the Pico Channel WebSocket,
 // with configuration management and gateway process control.
 //
 // Usage:
 //
-//	go build -o picoclaw-web ./web/backend/
-//	./picoclaw-web [config.json]
-//	./picoclaw-web -public config.json
+//	go build -o reef-web ./web/backend/
+//	./reef-web [config.json]
+//	./reef-web -public config.json
 
 package main
 
@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	appName = "PicoClaw"
+	appName = "Reef"
 
 	logPath   = "logs"
 	panicFile = "launcher_panic.log"
@@ -355,7 +355,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s Launcher - Web console and gateway manager\n\n", appName)
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [config.json]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Arguments:\n")
-		fmt.Fprintf(os.Stderr, "  config.json    Path to the configuration file (default: ~/.picoclaw/config.json)\n\n")
+		fmt.Fprintf(os.Stderr, "  config.json    Path to the configuration file (default: ~/.reef/config.json)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
@@ -484,7 +484,7 @@ func main() {
 	}
 
 	if !explicitHost && hostOverrideActive {
-		logger.InfoC("web", "Using launcher host from environment PICOCLAW_LAUNCHER_HOST")
+		logger.InfoC("web", "Using launcher host from environment REEF_LAUNCHER_HOST")
 	}
 
 	if hostOverrideActive && explicitPublic {

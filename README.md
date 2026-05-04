@@ -1,137 +1,135 @@
-# 🪸 Reef
+# 🪸 PicoClaw — Reef Agent Runtime
 
-**Distributed Multi-Agent Swarm Orchestration System**
+> **The cognitive engine for Reef Swarm.**
+>
+> Distributed multi-agent orchestration starts here.
 
-> Built on [PicoClaw](https://github.com/sipeed/picoclaw) — the ultra-lightweight personal AI agent by [Sipeed](https://sipeed.com).
-> Reef extends PicoClaw into a distributed swarm architecture with multi-agent coordination,
-> priority scheduling, DAG workflow execution, and cross-channel task routing.
-
-[中文文档](./README_zh.md)
+PicoClaw is the **Agent Runtime** of the Reef distributed swarm. It provides the cognitive architecture — structured memory, corruption detection, task isolation, and episodic learning — that powers every node in a Reef cluster.
 
 ---
 
-## 💡 What is Reef?
+## 🧩 What is PicoClaw?
 
-Reef is a **distributed multi-agent swarm orchestration system** written in Go. It transforms PicoClaw's single-agent architecture into a **coordinated swarm** where:
+PicoClaw is an **ultra-lightweight personal AI agent** by [Sipeed](https://sipeed.com). In the Reef architecture, it serves as the **Client runtime** — executing tasks inside isolated sandboxes while maintaining long-term cognitive memory.
 
-- A **Reef Server** (Hermes Coordinator) receives tasks and delegates them to available worker nodes
-- **Reef Clients** register their capabilities (role, skills, capacity) and execute tasks
-- **Priority scheduling** with pluggable strategies (least-load, skill-match, round-robin)
-- **DAG Engine** for complex multi-step workflows with dependency tracking
-- **Cross-channel task routing** — tasks submitted via Telegram/Feishu/etc. get results back to the same channel
-- **Web UI** for real-time swarm monitoring
+```
+┌──────────────────────────────────────────┐
+│              Reef Server                  │
+│         (Scheduler + Raft)               │
+└──────────────┬───────────────────────────┘
+               │ CNP Protocol
+        ┌──────┴──────┐
+        ▼             ▼
+┌──────────────┐  ┌──────────────┐
+│   PicoClaw   │  │   PicoClaw   │
+│  (Agent Node)│  │  (Agent Node)│
+├──────────────┤  ├──────────────┤
+│ Sandbox      │  │ Sandbox      │
+│ MemorySystem │  │ MemorySystem │
+│ AgentLoop    │  │ AgentLoop    │
+└──────────────┘  └──────────────┘
+```
 
-## ✨ Features
+---
 
-- 🌊 **Swarm Orchestration** — Server + Client nodes with WebSocket protocol
-- 🧠 **Hermes Role Delegation** — Coordinator / Executor / Full capability models
-- 📊 **Priority-Based Scheduling** — Pluggable MatchStrategy with least-load default
-- 🔗 **DAG Workflow Engine** — Sub-tasks, dependencies, aggregation
-- 🔄 **Cross-Channel ReplyTo** — Tasks route results back to source channels
-- 🖥️ **Web Dashboard** — Real-time stats, task table, client monitoring, SSE events
-- ⚡ **Ultra-Lightweight** — Inherits PicoClaw's <10MB footprint
-- 🔌 **Persistent Storage** — SQLite-backed task store with in-memory fallback
+## 🧠 Cognitive Architecture (P8)
 
-## 🏗️ Architecture
+PicoClaw implements an **8-phase cognitive architecture** with four layers of structured context:
+
+### Four-Layer Context Model
 
 ```
 ┌─────────────────────────────────────────────┐
-│                 Reef Server                   │
-│  ┌─────────┐  ┌──────────┐  ┌────────────┐  │
-│  │Priority │→│Scheduler  │→│  Registry   │  │
-│  │ Queue   │  │           │  │  (Clients)  │  │
-│  └─────────┘  └─────┬─────┘  └──────┬─────┘  │
-│                     │               │        │
-│              ┌──────▼──────┐        │        │
-│              │  DAG Engine │        │        │
-│              └──────┬──────┘        │        │
-│                     │               │        │
-│              ┌──────▼───────────────▼───┐    │
-│              │     WebSocket Protocol    │    │
-│              └──────┬───────────────────┘    │
-└─────────────────────┼────────────────────────┘
-                      │
-        ┌─────────────┼─────────────┐
-        │             │             │
-   ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
-   │ Client  │   │ Client  │   │ Client  │
-   │executor │   │analyst  │   │  full   │
-   │ python  │   │  sql    │   │   all   │
-   └─────────┘   └─────────┘   └─────────┘
+│ L0: Immutable Layer                         │
+│   System prompt, role config, skills, genes │
+│   NEVER compacted                           │
+├─────────────────────────────────────────────┤
+│ L1: Task Layer                              │
+│   Instruction, metadata, tool descriptions  │
+│   Compacted only on task switch             │
+├─────────────────────────────────────────────┤
+│ L2: Working Rounds Layer                    │
+│   Round 1: [user] → [tool:exec] → [output]  │
+│   Round 2: [tool:read] → [output]           │
+│   ...                                       │
+│   Compact: old rounds → seahorse summary    │
+├─────────────────────────────────────────────┤
+│ L3: Memory Injections                       │
+│   [gene: "use proper error handling"]       │
+│   [episode: "last time: db timeout fix"]    │
+│   Evict: LRU                                │
+└─────────────────────────────────────────────┘
 ```
 
-## 📦 Quick Start
+### Key Components
 
-### Install
-
-```bash
-go install github.com/zhazhaku/reef/cmd/reef@latest
-```
-
-### Start Server
-
-```bash
-reef server
-```
-
-### Start Client
-
-```bash
-reef client --server ws://localhost:8765 --role executor --skills python,bash
-```
-
-### Web Dashboard
-
-Open `http://localhost:8080/reef/overview` in your browser.
-
-## 📊 Reef Scheduler v2
-
-The scheduler has been significantly upgraded:
-
-| Capability | Description |
-|------------|-------------|
-| Priority Queue | Tasks prioritized by urgency (1-10) |
-| MatchStrategy | Pluggable client selection (least-load, skill-match) |
-| DAG Engine | Sub-task creation, dependency tracking, auto-unblock |
-| ReplyTo | Cross-channel result routing |
-| Persistence | SQLite-backed task store |
-| SSE Events | Real-time Web UI updates |
-
-See [reef-scheduler-v2 design docs](./openspec/changes/reef-scheduler-v2/) for details.
-
-## 📁 Project Structure
-
-```
-reef/
-├── cmd/reef/          # CLI binary
-├── pkg/
-│   ├── reef/          # Swarm core (Task, Protocol, Bridge)
-│   │   ├── server/    # Scheduler, DAG, Queue, Registry
-│   │   └── client/    # Client connector & task runner
-│   ├── agent/         # Hermes agent (Coordinator/Executor)
-│   ├── gateway/       # Channel gateway integration
-│   └── ...
-├── openspec/          # Design docs & specifications
-├── web/
-│   ├── backend/       # Go API server
-│   └── frontend/      # React + TypeScript UI
-└── docker/            # Docker & Compose configs
-```
-
-## 👥 Contributing
-
-Contributions are welcome! Check the [OpenSpec proposals](./openspec/) for current design decisions.
-
-## 📄 License
-
-MIT — Based on PicoClaw. Original PicoClaw license retained.
+| Component | File | Purpose |
+|-----------|------|---------|
+| **ContextLayers** | `pkg/agent/context_layers.go` | Four-layer structured context |
+| **ContextWindow** | `pkg/agent/context_window.go` | Token budget + auto-compact |
+| **CorruptionGuard** | `pkg/agent/corruption_guard.go` | Loop/Blank/Drift detection |
+| **TaskSandbox** | `pkg/agent/sandbox.go` | Isolated per-task workspace |
+| **CheckpointManager** | `pkg/agent/checkpoint.go` | Time + round-based snapshots |
+| **MemorySystem** | `pkg/memory/` | Episodic + semantic memory |
+| **AgentLoop** | `pkg/agent/agent.go` | Main execution pipeline |
 
 ---
 
-## 🙏 Credits
+## 🔗 Reef Integration
 
-**Reef** is built upon **[PicoClaw](https://github.com/sipeed/picoclaw)**, the ultra-lightweight personal AI agent by **[Sipeed](https://sipeed.com)**.
+PicoClaw connects to Reef Server via **CNP (Cognitive Network Protocol)** over WebSocket.
 
-PicoClaw provided the foundation: Go-native agent architecture, multi-channel messaging, and tool system. Reef extends this foundation into a distributed swarm orchestration platform.
+### Bridge Interfaces
 
-We are deeply grateful to the PicoClaw community and maintainers for their excellent work.
+```
+reef/client.Sandbox          ←── ReefSandboxFactory ──→ agent.TaskSandbox
+reef/client.MemoryRecorder   ←── ReefMemoryRecorder ──→ memory.EpisodicStore
+reef/client.ContextManager   ←── CNPContextManager ───→ agent.ContextLayers
+```
+
+### Files
+
+| Bridge | File |
+|--------|------|
+| Sandbox Bridge | `pkg/agent/reef_sandbox.go` |
+| Memory Bridge | `pkg/agent/reef_memory_recorder.go` |
+| Context Bridge | `pkg/agent/context_cnp.go` |
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# Build
+go build -o bin/picoclaw .
+
+# Run as Reef Client
+picoclaw agent --server ws://reef-server:8765 --role coder --skills "go,bash"
+```
+
+---
+
+## 📊 Stats
+
+| Metric | Count |
+|--------|-------|
+| Go source files | 71 |
+| Test files | 50+ |
+| Total tests | ~260 |
+| P8 cognitive tests | 94 (all pass) |
+| Coverage | 88–100% |
+
+---
+
+## 📄 Documentation
+
+- [Architecture](../REEF_SYSTEM.md) — Full Reef technical reference
+- [ROADMAP](./ROADMAP.md) — Development roadmap
+- [CHANGELOG](./CHANGELOG.md) — Release history
+- [CONTRIBUTING](./CONTRIBUTING.md) — Contribution guide
+
+---
+
+## 🏷️ License
+
+MIT — Part of the Reef project. Original PicoClaw license retained.

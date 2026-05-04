@@ -74,6 +74,16 @@ type services struct {
 	manualReloadChan chan struct{}
 	reloading        atomic.Bool
 	authToken        string
+	reefServer       *reefserver.Server // background Reef server (coordinator mode)
+}
+
+// channelSenderAdapter adapts *channels.Manager to the reef ChannelSender interface.
+type channelSenderAdapter struct {
+	mgr *channels.Manager
+}
+
+func (a *channelSenderAdapter) Send(channel, chatID string, content string) error {
+	return a.mgr.SendToChannel(context.Background(), channel, chatID, content)
 }
 
 type startupBlockedProvider struct {
@@ -113,6 +123,220 @@ func (p *startupBlockedProvider) Chat(
 
 func (p *startupBlockedProvider) GetDefaultModel() string {
 	return ""
+}
+
+// RunWithConfig starts the gateway runtime using an already-loaded configuration.
+// This bypasses LoadConfig to avoid re-serializing SecureString fields.
+func RunWithConfig(cfg *config.Config, debug bool, homePath string, allowEmptyStartup bool) (runErr error) {
+	panicPath := filepath.Join(homePath, logPath, panicFile)
+	panicFunc, err := logger.InitPanic(panicPath)
+	if err != nil {
+		return fmt.Errorf("error initializing panic log: %w", err)
+	}
+	defer panicFunc()
+
+	if err = logger.EnableFileLogging(filepath.Join(homePath, logPath, logFile)); err != nil {
+		logger.Fatal(fmt.Sprintf("error enabling file logging: %v", err))
+	}
+	defer logger.DisableFileLogging()
+
+	if debug {
+		logger.SetLevel(logger.DEBUG)
+	} else {
+		logger.SetLevelFromString(config.EffectiveGatewayLogLevel(cfg))
+	}
+	defer func() {
+		if runErr != nil {
+			logger.ErrorCF("gateway", "Gateway startup failed", map[string]any{
+				"error":       runErr.Error(),
+				"home_path":   homePath,
+				"allow_empty": allowEmptyStartup,
+				"debug":       debug,
+			})
+		}
+	}()
+
+	if err = preCheckConfig(cfg); err != nil {
+		return fmt.Errorf("config pre-check failed: %w", err)
+	}
+
+	// Check for Reef Server mode
+	if reefErr := runReefServerMode(cfg); reefErr != nil {
+		return reefErr
+	}
+
+	// Debug mode permanently overrides the config log level to DEBUG.
+	if debug {
+		fmt.Println("🔍 Debug mode enabled")
+	} else {
+		effectiveLogLevel := config.EffectiveGatewayLogLevel(cfg)
+		logger.SetLevelFromString(effectiveLogLevel)
+		logger.Infof("Log level set to %q", effectiveLogLevel)
+	}
+
+	bindPlan, listenResult, err := openGatewayListeners(cfg.Gateway.Host, cfg.Gateway.Port)
+	if err != nil {
+		return fmt.Errorf("error opening gateway listeners: %w", err)
+	}
+
+	// Enforce singleton: write PID file with generated token.
+	pidData, err := pid.WritePidFile(homePath, bindPlan.ProbeHost, cfg.Gateway.Port)
+	if err != nil {
+		logger.Warnf("write pid file failed: %v", err)
+		for _, ln := range listenResult.Listeners {
+			_ = ln.Close()
+		}
+		return fmt.Errorf("singleton check failed: %w", err)
+	}
+	defer pid.RemovePidFile(homePath)
+	closeListeners := true
+	defer func() {
+		if !closeListeners {
+			return
+		}
+		for _, ln := range listenResult.Listeners {
+			_ = ln.Close()
+		}
+	}()
+
+	provider, modelID, err := createStartupProvider(cfg, allowEmptyStartup)
+	if err != nil {
+		return fmt.Errorf("error creating provider: %w", err)
+	}
+
+	if modelID != "" {
+		cfg.Agents.Defaults.ModelName = modelID
+	}
+
+	msgBus := bus.NewMessageBus()
+	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+
+	// If Hermes Coordinator mode, start Reef Server in background and
+	// register coordination tools on the AgentLoop.
+	var reefSrv *reefserver.Server
+	if cfg.Hermes.IsCoordinator() {
+		reefSrv = startReefServerBackground(cfg)
+		if reefSrv != nil {
+			bridge := reefSrv.Bridge()
+			agentLoop.RegisterReefTools(bridge)
+			logger.InfoCF("reef", "Reef coordination tools registered for Hermes Coordinator", nil)
+		}
+	}
+
+	fmt.Println("\n📦 Agent Status:")
+	startupInfo := agentLoop.GetStartupInfo()
+	toolsInfo := startupInfo["tools"].(map[string]any)
+	skillsInfo := startupInfo["skills"].(map[string]any)
+	fmt.Printf("  • Tools: %d loaded\n", toolsInfo["count"])
+	fmt.Printf("  • Skills: %d/%d available\n", skillsInfo["available"], skillsInfo["total"])
+
+	logger.InfoCF("agent", "Agent initialized",
+		map[string]any{
+			"tools_count":      toolsInfo["count"],
+			"skills_total":     skillsInfo["total"],
+			"skills_available": skillsInfo["available"],
+		})
+
+	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, listenResult)
+	if err != nil {
+		return err
+	}
+	closeListeners = false
+
+	// Wire GatewayBridge so task results are delivered back to chat channels.
+	if reefSrv != nil {
+		runningServices.reefServer = reefSrv
+		gb := reefserver.NewGatewayBridge(reefSrv.Scheduler(), nil)
+		gb.SetChannelSender(&channelSenderAdapter{mgr: runningServices.ChannelManager})
+		_ = gb.Start(context.Background())
+		logger.InfoCF("reef", "GatewayBridge wired for result delivery", nil)
+	}
+
+	// Setup manual reload channel for /reload endpoint
+	manualReloadChan := make(chan struct{}, 1)
+	runningServices.manualReloadChan = manualReloadChan
+	reloadTrigger := func() error {
+		if !runningServices.reloading.CompareAndSwap(false, true) {
+			return fmt.Errorf("reload already in progress")
+		}
+		select {
+		case manualReloadChan <- struct{}{}:
+			return nil
+		default:
+			runningServices.reloading.Store(false)
+			return fmt.Errorf("reload already queued")
+		}
+	}
+	runningServices.HealthServer.SetReloadFunc(reloadTrigger)
+	agentLoop.SetReloadFunc(reloadTrigger)
+
+	for _, bindHost := range listenResult.BindHosts {
+		fmt.Printf("✓ Gateway started on %s\n", net.JoinHostPort(bindHost, strconv.Itoa(cfg.Gateway.Port)))
+	}
+	fmt.Println("Press Ctrl+C to stop")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go agentLoop.Run(ctx)
+
+	// Wire SwarmChannel to AgentLoop for event observation
+	if swarmCh, ok := runningServices.ChannelManager.GetChannel("swarm"); ok {
+		if sc, ok := swarmCh.(*swarm.SwarmChannel); ok {
+			sc.SetAgentLoop(agentLoop)
+		}
+	}
+
+	var configReloadChan <-chan *config.Config
+	stopWatch := func() {}
+	if cfg.Gateway.HotReload {
+		// Hot reload via RunWithConfig requires a config path; use workspace dir.
+		configPath := filepath.Join(homePath, "config.json")
+		configReloadChan, stopWatch = setupConfigWatcherPolling(configPath, debug)
+		logger.Info("Config hot reload enabled")
+	}
+	defer stopWatch()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	for {
+		select {
+		case <-sigChan:
+			logger.Info("Shutting down...")
+			shutdownGateway(runningServices, agentLoop, provider, true)
+			return nil
+		case newCfg := <-configReloadChan:
+			if !runningServices.reloading.CompareAndSwap(false, true) {
+				logger.Warn("Config reload skipped: another reload is in progress")
+				continue
+			}
+			err := executeReload(ctx, agentLoop, newCfg, &provider, runningServices, msgBus, allowEmptyStartup, debug)
+			if err != nil {
+				logger.Errorf("Config reload failed: %v", err)
+			}
+		case <-manualReloadChan:
+			logger.Info("Manual reload triggered via /reload endpoint")
+			configPath := filepath.Join(homePath, "config.json")
+			newCfg, err := config.LoadConfig(configPath)
+			if err != nil {
+				logger.Errorf("Error loading config for manual reload: %v", err)
+				runningServices.reloading.Store(false)
+				continue
+			}
+			if err = newCfg.ValidateModelList(); err != nil {
+				logger.Errorf("Config validation failed: %v", err)
+				runningServices.reloading.Store(false)
+				continue
+			}
+			err = executeReload(ctx, agentLoop, newCfg, &provider, runningServices, msgBus, allowEmptyStartup, debug)
+			if err != nil {
+				logger.Errorf("Manual reload failed: %v", err)
+			} else {
+				logger.Info("Manual reload completed successfully")
+			}
+		}
+	}
 }
 
 // Run starts the gateway runtime using the configuration loaded from configPath.
@@ -209,8 +433,9 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	// If Hermes Coordinator mode, start Reef Server in background and
 	// register coordination tools on the AgentLoop.
+	var reefSrv *reefserver.Server
 	if cfg.Hermes.IsCoordinator() {
-		reefSrv := startReefServerBackground(cfg)
+		reefSrv = startReefServerBackground(cfg)
 		if reefSrv != nil {
 			bridge := reefSrv.Bridge()
 			agentLoop.RegisterReefTools(bridge)
@@ -237,6 +462,15 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		return err
 	}
 	closeListeners = false
+
+	// Wire GatewayBridge so task results are delivered back to chat channels.
+	if reefSrv != nil {
+		runningServices.reefServer = reefSrv
+		gb := reefserver.NewGatewayBridge(reefSrv.Scheduler(), nil)
+		gb.SetChannelSender(&channelSenderAdapter{mgr: runningServices.ChannelManager})
+		_ = gb.Start(context.Background())
+		logger.InfoCF("reef", "GatewayBridge wired for result delivery", nil)
+	}
 
 	// Setup manual reload channel for /reload endpoint
 	manualReloadChan := make(chan struct{}, 1)
@@ -830,7 +1064,16 @@ func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, ch
 // runReefServerMode checks if the swarm channel is configured with mode=server.
 // If so, it starts the Reef Server and blocks until SIGTERM/SIGINT, then returns nil.
 // If swarm is not in server mode, it returns nil immediately.
+// When Hermes is in coordinator mode, the Reef Server is started in background
+// by startReefServerBackground instead, so this function skips.
 func runReefServerMode(cfg *config.Config) error {
+	// When running in coordinator mode (reef server command), the Reef Server
+	// is started in background alongside the full gateway (channels + AgentLoop).
+	// Skip standalone mode to avoid blocking before channels are initialized.
+	if cfg.Hermes.IsCoordinator() {
+		return nil
+	}
+
 	ch, exists := cfg.Channels["swarm"]
 	if !exists || !ch.Enabled {
 		return nil
@@ -929,7 +1172,7 @@ func runReefServerMode(cfg *config.Config) error {
 // startReefServerBackground starts the Reef Server in the background
 // (non-blocking) and returns the Server instance. Returns nil if swarm
 // is not configured in server mode.
-// This is used by the `picoclaw server` command to run both the Reef
+// This is used by the `reef server` command to run both the Reef
 // Server and the Gateway/AgentLoop in the same process.
 func startReefServerBackground(cfg *config.Config) *reefserver.Server {
 	ch, exists := cfg.Channels["swarm"]

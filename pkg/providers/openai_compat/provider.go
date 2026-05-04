@@ -263,6 +263,17 @@ func filterDeepSeekReasoningTurn(messages []Message) []Message {
 		// "reasoning_content in the thinking mode must be passed back" error.
 		// Instead we only drop messages that are truly empty.
 		cloned := msg
+
+		// DeepSeek V4 thinking mode requires reasoning_content to be present
+		// on ALL assistant messages in the conversation history, even when
+		// the value is an empty string. If ReasoningContentPresent was lost
+		// (e.g. during session JSON round-trip or seahorse bootstrap from
+		// legacy data), force-set it so that SerializeMessages includes the
+		// field in the outgoing request body.
+		if cloned.Role == "assistant" && !cloned.ReasoningContentPresent {
+			cloned.ReasoningContentPresent = true
+		}
+
 		if assistantMessageEmpty(cloned) {
 			continue
 		}

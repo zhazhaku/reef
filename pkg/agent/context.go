@@ -116,9 +116,9 @@ func (cb *ContextBuilder) getIdentity() string {
 	version := config.FormatVersion()
 
 	return fmt.Sprintf(
-		`# picoclaw 🦞 (%s)
+		`# reef 🪸 (%s)
 
-You are picoclaw, a helpful AI assistant.
+You are reef, a helpful AI assistant.
 
 ## Workspace
 Your workspace is at: %s
@@ -181,7 +181,7 @@ func (cb *ContextBuilder) BuildSystemPromptParts() []PromptPart {
 		Layer:   PromptLayerKernel,
 		Slot:    PromptSlotIdentity,
 		Source:  PromptSource{ID: PromptSourceKernel, Name: "identity"},
-		Title:   "picoclaw identity",
+		Title:   "reef identity",
 		Content: cb.getIdentity(),
 		Stable:  true,
 		Cache:   PromptCacheEphemeral,

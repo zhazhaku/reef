@@ -1,6 +1,6 @@
 // Package client implements the `reef client` command — a standalone
 // Reef worker node that connects to a Reef Server, receives tasks, and
-// executes them using PicoClaw's AgentLoop.
+// executes them using Reef's AgentLoop.
 package client
 
 import (
@@ -36,9 +36,9 @@ func NewClientCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "client",
-		Short: "Start PicoClaw as a Reef worker node",
-		Long: `Start PicoClaw as a standalone worker node that connects to a Reef Server,
-receives tasks, and executes them using PicoClaw's AgentLoop.
+		Short: "Start Reef as a Reef worker node",
+		Long: `Start Reef as a standalone worker node that connects to a Reef Server,
+receives tasks, and executes them using Reef's AgentLoop.
 
 This is the counterpart to 'reef server'. While the server coordinates
 and delegates, the client executes tasks using all available tools.
@@ -91,7 +91,7 @@ Examples:
 	cmd.Flags().StringVar(&serverURL, "server", "", "Reef Server WebSocket URL (required)")
 	cmd.Flags().StringVar(&clientID, "id", "", "Client ID (auto-generated if empty)")
 	cmd.Flags().StringVar(&role, "role", "", "Client role (required)")
-	cmd.Flags().StringArrayVar(&skills, "skills", nil, "Skills this client supports")
+	cmd.Flags().StringSliceVar(&skills, "skills", nil, "Skills this client supports (comma-separated or repeated)")
 	cmd.Flags().IntVarP(&capacity, "capacity", "c", 3, "Max concurrent tasks")
 	cmd.Flags().StringVar(&token, "token", "", "Authentication token")
 	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
@@ -223,7 +223,7 @@ func processMessages(ctx context.Context, connector *client.Connector, runner *c
 func printClientBanner(opts client.ConnectorOptions) {
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                  PicoClaw Client Mode                       ║")
+	fmt.Println("║                  Reef Client Mode                       ║")
 	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
 	fmt.Println("║  Hermes Mode:  Executor                                     ║")
 	fmt.Println("║  Role:         Worker Node (task execution)                 ║")

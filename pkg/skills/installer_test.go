@@ -25,7 +25,7 @@ func TestParseGitHubRef(t *testing.T) {
 	}{
 		{
 			name:         "simple owner/repo",
-			repo:         "sipeed/reef",
+			repo:         "sipeed/picoclaw",
 			wantOwner:    "sipeed",
 			wantRepoName: "reef",
 			wantRef:      "main",
@@ -33,7 +33,7 @@ func TestParseGitHubRef(t *testing.T) {
 		},
 		{
 			name:         "owner/repo with subpath",
-			repo:         "sipeed/reef/skills/test",
+			repo:         "sipeed/picoclaw/skills/test",
 			wantOwner:    "sipeed",
 			wantRepoName: "reef",
 			wantRef:      "main",
@@ -83,7 +83,7 @@ func TestParseGitHubRef(t *testing.T) {
 		},
 		{
 			name:         "with whitespace",
-			repo:         "  sipeed/reef  ",
+			repo:         "  sipeed/picoclaw  ",
 			wantOwner:    "sipeed",
 			wantRepoName: "reef",
 			wantRef:      "main",
@@ -91,7 +91,7 @@ func TestParseGitHubRef(t *testing.T) {
 		},
 		{
 			name:           "invalid non github host",
-			repo:           "https://gitlab.com/sipeed/reef/-/tree/main/skills/test",
+			repo:           "https://gitlab.com/sipeed/picoclaw/-/tree/main/skills/test",
 			wantErr:        true,
 			wantErrContain: `invalid GitHub URL host "gitlab.com"`,
 		},
@@ -732,7 +732,7 @@ func TestSkillInstaller_InstallFromGitHub_SkillAlreadyExists(t *testing.T) {
 	os.WriteFile(filepath.Join(existingSkill, "SKILL.md"), []byte("existing"), 0o644)
 
 	// Try to install the same skill - should fail
-	err = installer.InstallFromGitHub(context.Background(), "sipeed/reef")
+	err = installer.InstallFromGitHub(context.Background(), "sipeed/picoclaw")
 	if err == nil {
 		t.Error("InstallFromGitHub() expected error for existing skill, got nil")
 	}

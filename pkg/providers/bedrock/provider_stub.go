@@ -1,9 +1,9 @@
 //go:build !bedrock
 
-// PicoClaw - Ultra-lightweight personal AI agent
+// Reef - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 // Package bedrock provides a stub implementation when built without the bedrock tag.
 // To enable AWS Bedrock support, build with: go build -tags bedrock

@@ -505,8 +505,15 @@ func TestProviderChat_HistoryCanonicalizationMatrix(t *testing.T) {
 		if msgs[3]["reasoning_content"] != "tool thought" {
 			t.Fatalf("turn2 reasoning_content = %v, want preserved", msgs[3]["reasoning_content"])
 		}
-		if _, ok := msgs[6]["reasoning_content"]; ok {
-			t.Fatalf("turn3 reasoning_content should be absent, got %v", msgs[6]["reasoning_content"])
+		// DeepSeek V4 thinking mode requires reasoning_content on ALL assistant
+		// messages, even when the original message did not have it. This ensures
+		// round-trip compatibility: if a previous turn returned reasoning_content
+		// (even empty), the API requires it on every assistant message.
+		if msgs[6]["reasoning_content"] != "" {
+			t.Fatalf("turn3 reasoning_content should be empty string (forced present), got %v", msgs[6]["reasoning_content"])
+		}
+		if _, ok := msgs[6]["reasoning_content"]; !ok {
+			t.Fatalf("turn3 reasoning_content must be present (even if empty) for DeepSeek thinking mode")
 		}
 		if msgs[9]["reasoning_content"] != "tool mixed thought" {
 			t.Fatalf("turn4 reasoning_content = %v, want preserved", msgs[9]["reasoning_content"])

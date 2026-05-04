@@ -18,22 +18,19 @@ type TimeoutScanner struct {
 	logger   *slog.Logger
 
 	// Dependencies
-	getTasks  func() []*reef.Task            // returns all tasks (for scanning)
-	onTimeout func(task *reef.Task)          // called when a task times out
-	store     store.TaskStore                // optional persistent store
+	scheduler *Scheduler           // scheduler with locked state access
+	store     store.TaskStore      // optional persistent store
 
 	stopped chan struct{}
 	cancel  context.CancelFunc
 }
 
 // NewTimeoutScanner creates a timeout scanner with the given interval.
-// getTasks should return a snapshot of all known tasks.
-// onTimeout is called for each timed-out task.
+// The scheduler provides thread-safe task state access.
 func NewTimeoutScanner(
 	interval time.Duration,
 	logger *slog.Logger,
-	getTasks func() []*reef.Task,
-	onTimeout func(task *reef.Task),
+	scheduler *Scheduler,
 	s store.TaskStore,
 ) *TimeoutScanner {
 	if interval <= 0 {
@@ -45,8 +42,7 @@ func NewTimeoutScanner(
 	return &TimeoutScanner{
 		interval:  interval,
 		logger:    logger,
-		getTasks:  getTasks,
-		onTimeout: onTimeout,
+		scheduler: scheduler,
 		store:     s,
 		stopped:   make(chan struct{}),
 	}
@@ -88,7 +84,7 @@ func (ts *TimeoutScanner) Stopped() <-chan struct{} {
 
 // scan checks all running tasks for timeout.
 func (ts *TimeoutScanner) scan(now time.Time) {
-	tasks := ts.getTasks()
+	tasks := ts.scheduler.TasksSnapshot()
 	for _, task := range tasks {
 		if task.Status != reef.TaskRunning {
 			continue
@@ -99,30 +95,30 @@ func (ts *TimeoutScanner) scan(now time.Time) {
 
 		deadline := task.StartedAt.Add(time.Duration(task.TimeoutMs) * time.Millisecond)
 		if now.After(deadline) {
+			elapsed := now.Sub(*task.StartedAt)
 			ts.logger.Warn("task timed out",
 				slog.String("task_id", task.ID),
 				slog.String("instruction", task.Instruction),
-				slog.Duration("elapsed", now.Sub(*task.StartedAt)))
+				slog.Duration("elapsed", elapsed))
 
-			// Mark as failed with timeout error
-			task.Error = &reef.TaskError{
-				Type:    "timeout",
-				Message: "task exceeded timeout",
-				Detail:  "elapsed: " + now.Sub(*task.StartedAt).String(),
+			// Use the scheduler's locked method to transition state
+			if err := ts.scheduler.HandleTaskTimedOut(task.ID, elapsed); err != nil {
+				ts.logger.Warn("failed to mark task as timed out",
+					slog.String("task_id", task.ID),
+					slog.String("error", err.Error()))
+				continue
 			}
-			_ = task.Transition(reef.TaskFailed)
 
 			// Persist if store is available
 			if ts.store != nil {
-				if err := ts.store.UpdateTask(task); err != nil {
-					ts.logger.Warn("failed to persist timeout",
-						slog.String("task_id", task.ID),
-						slog.String("error", err.Error()))
+				updatedTask := ts.scheduler.GetTask(task.ID)
+				if updatedTask != nil {
+					if err := ts.store.UpdateTask(updatedTask); err != nil {
+						ts.logger.Warn("failed to persist timeout",
+							slog.String("task_id", task.ID),
+							slog.String("error", err.Error()))
+					}
 				}
-			}
-
-			if ts.onTimeout != nil {
-				ts.onTimeout(task)
 			}
 		}
 	}

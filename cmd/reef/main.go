@@ -3,7 +3,7 @@
 // Original inspiration: nanobot (github.com/HKUDS/nanobot)
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Reef contributors
 
 package main
 
@@ -58,7 +58,7 @@ func earlyColorDisabled() bool {
 func NewReefCommand() *cobra.Command {
 	short := fmt.Sprintf("%s Reef — distributed multi-agent swarm orchestration", internal.Logo)
 	long := fmt.Sprintf(`%s Reef is a distributed multi-agent swarm orchestration system
-based on PicoClaw.
+based on Reef.
 
 Version: %s`, internal.Logo, config.FormatVersion())
 

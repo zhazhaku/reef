@@ -16,12 +16,12 @@ func TestGetConfigPath(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home")
 
 	got := GetConfigPath()
-	want := filepath.Join("/tmp/home", ".picoclaw", "config.json")
+	want := filepath.Join("/tmp/home", ".reef", "config.json")
 
 	assert.Equal(t, want, got)
 }
 
-func TestGetConfigPath_WithPICOCLAW_HOME(t *testing.T) {
+func TestGetConfigPath_WithREEF_HOME(t *testing.T) {
 	t.Setenv(config.EnvHome, "/custom/picoclaw")
 	t.Setenv("HOME", "/tmp/home")
 
@@ -51,7 +51,7 @@ func TestGetConfigPath_Windows(t *testing.T) {
 	t.Setenv("USERPROFILE", testUserProfilePath)
 
 	got := GetConfigPath()
-	want := filepath.Join(testUserProfilePath, ".picoclaw", "config.json")
+	want := filepath.Join(testUserProfilePath, ".reef", "config.json")
 
 	require.True(t, strings.EqualFold(got, want), "GetConfigPath() = %q, want %q", got, want)
 }

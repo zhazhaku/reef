@@ -17,8 +17,8 @@ func init() {
 	}
 
 	// 从环境变量获取 DNS server 列表，多个用 ; 隔开
-	// 例如: PICOCLAW_DNS_SERVER="8.8.8.8:53;1.1.1.1:53;223.5.5.5:53"
-	dnsEnv := os.Getenv("PICOCLAW_DNS_SERVER")
+	// 例如: REEF_DNS_SERVER="8.8.8.8:53;1.1.1.1:53;223.5.5.5:53"
+	dnsEnv := os.Getenv("REEF_DNS_SERVER")
 	if dnsEnv == "" {
 		dnsEnv = "8.8.8.8:53;1.1.1.1:53"
 	}

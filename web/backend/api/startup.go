@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	autoStartEntryName = "PicoClawLauncher"
+	autoStartEntryName = "ReefLauncher"
 	launchAgentLabel   = "io.reef.launcher"
 )
 
@@ -218,7 +218,7 @@ func buildDarwinPlist(exePath string, args []string) string {
 
 func linuxAutoStartPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "autostart", "picoclaw-web.desktop")
+	return filepath.Join(home, ".config", "autostart", "reef-web.desktop")
 }
 
 func shellQuote(s string) string {
@@ -250,8 +250,8 @@ func setLinuxAutoStart(enabled bool, exePath string, args []string) error {
 			"[Desktop Entry]",
 			"Type=Application",
 			"Version=1.0",
-			"Name=PicoClaw Web",
-			"Comment=Start PicoClaw Web on login",
+			"Name=Reef Web",
+			"Comment=Start Reef Web on login",
 			"Exec=" + buildLinuxExecLine(exePath, args),
 			"Terminal=false",
 			"X-GNOME-Autostart-enabled=true",
