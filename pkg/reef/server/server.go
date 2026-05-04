@@ -19,6 +19,7 @@ type Config struct {
 	Token            string
 	HeartbeatTimeout time.Duration
 	HeartbeatScan    time.Duration
+	MaxMissedHeartbeats int // number of consecutive missed heartbeats before declaring stale (default 3)
 	QueueMaxLen      int
 	QueueMaxAge      time.Duration
 	MaxEscalations   int
@@ -100,14 +101,15 @@ func (c *Config) Validate() error {
 // DefaultConfig returns a configuration with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		WebSocketAddr:    ":8080",
-		AdminAddr:        ":8081",
-		Token:            "",
-		HeartbeatTimeout: 30 * time.Second,
-		HeartbeatScan:    5 * time.Second,
-		QueueMaxLen:      1000,
-		QueueMaxAge:      10 * time.Minute,
-		MaxEscalations:   2,
+		WebSocketAddr:        ":8080",
+		AdminAddr:            ":8081",
+		Token:                "",
+		HeartbeatTimeout:     30 * time.Second,
+		HeartbeatScan:        5 * time.Second,
+		MaxMissedHeartbeats:  3,
+		QueueMaxLen:          1000,
+		QueueMaxAge:          10 * time.Minute,
+		MaxEscalations:       2,
 	}
 }
 
@@ -247,7 +249,9 @@ func (s *Server) heartbeatScanner(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			staleIDs := s.registry.ScanStale(s.config.HeartbeatTimeout)
+		// Compute stale timeout from MaxMissedHeartbeats * HeartbeatScan
+			timeout := time.Duration(s.config.MaxMissedHeartbeats) * s.config.HeartbeatScan
+			staleIDs := s.registry.ScanStale(timeout)
 			for _, id := range staleIDs {
 				// Pause any in-flight tasks for this client
 				for _, task := range s.scheduler.TasksSnapshot() {

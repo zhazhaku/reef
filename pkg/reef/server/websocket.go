@@ -41,6 +41,10 @@ type WebSocketServer struct {
 	pendingMu       sync.Mutex
 	pendingControls map[string][]reef.Message // buffered control messages for disconnected clients
 
+	// maxPendingControlsPerClient limits buffered control messages per disconnected client.
+	// When exceeded, oldest messages are dropped (sliding window).
+	maxPendingControlsPerClient int // default 100
+
 	// geneHandler handles gene_submit messages (Phase 6 evolution engine).
 	// When nil (default), gene_submit messages are logged and ignored.
 	geneHandler GeneSubmitHandler
@@ -60,11 +64,12 @@ func (s *WebSocketServer) SetGeneSubmitHandler(h GeneSubmitHandler) {
 // NewWebSocketServer creates a WebSocket acceptor.
 func NewWebSocketServer(registry *Registry, scheduler *Scheduler, token string, logger *slog.Logger) *WebSocketServer {
 	return &WebSocketServer{
-		registry:        registry,
-		scheduler:       scheduler,
-		token:           token,
-		logger:          logger,
-		pendingControls: make(map[string][]reef.Message),
+		registry:                    registry,
+		scheduler:                   scheduler,
+		token:                       token,
+		logger:                      logger,
+		pendingControls:             make(map[string][]reef.Message),
+		maxPendingControlsPerClient: 100,
 	}
 }
 
@@ -317,7 +322,12 @@ func (s *WebSocketServer) SendMessage(clientID string, msg reef.Message) error {
 		// Buffer control messages for disconnected clients
 		if isControlMessage(msg.MsgType) {
 			s.pendingMu.Lock()
-			s.pendingControls[clientID] = append(s.pendingControls[clientID], msg)
+			pending := s.pendingControls[clientID]
+			if len(pending) >= s.maxPendingControlsPerClient {
+				// Sliding window: drop oldest, keep newest
+				pending = pending[1:]
+			}
+			s.pendingControls[clientID] = append(pending, msg)
 			s.pendingMu.Unlock()
 			return nil
 		}

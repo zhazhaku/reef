@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,6 +24,23 @@ import (
 
 // TestAdminServer_HandleSubmitTask_QueueFull triggers the Submit→500 path
 // by filling the queue to capacity so Enqueue returns ErrQueueFull.
+// testError is a simple error type used in coverage tests for dispatch hook failures.
+type testError struct {
+	msg string
+}
+
+func (e *testError) Error() string { return e.msg }
+
+// setupAdminTest creates an AdminServer with an in-memory registry and scheduler for testing.
+func setupAdminTest(t *testing.T) (*AdminServer, *Registry, *Scheduler) {
+	t.Helper()
+	reg := NewRegistry(nil)
+	queue := NewTaskQueue(100, time.Hour)
+	sched := NewScheduler(reg, queue, SchedulerOptions{})
+	admin := NewAdminServer(reg, sched, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return admin, reg, sched
+}
+
 func TestAdminServer_HandleSubmitTask_QueueFull(t *testing.T) {
 	reg := NewRegistry(nil)
 	// Queue with maxLen=0 defaults to 1000; use maxLen=1 and fill it.

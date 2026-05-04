@@ -165,6 +165,12 @@ func (r *TaskRunner) runWithRetry(rt *RunningTask, maxRetries int) {
 			break
 		}
 
+		// Do not retry permanent (non-retryable) errors
+		if !reef.IsRetryable(err) {
+			r.logger.Info("permanent error, aborting retries", slog.String("task_id", rt.TaskID), slog.String("error", err.Error()))
+			break
+		}
+
 		if attempt < maxRetries {
 			delay := time.Duration(1<<attempt) * r.retryDelay
 			if delay > 30*time.Second {
