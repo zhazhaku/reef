@@ -36,7 +36,6 @@ func (m *smMockStore) addApprovedGene(g *evolution.Gene) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	g.Status = evolution.GeneStatusApproved
-	g.Role = g.Role
 	m.genes[g.ID] = g
 }
 
