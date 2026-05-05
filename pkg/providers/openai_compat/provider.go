@@ -192,6 +192,14 @@ func (p *Provider) buildRequestBody(
 	// These are injected last so they take precedence over defaults.
 	maps.Copy(requestBody, p.extraBody)
 
+	// DeepSeek V4 thinking mode: inject thinking toggle + reasoning_effort.
+	// Only injected for deepseek.com hosts to avoid breaking other providers.
+	if thinkingLevel, ok := options["thinking_level"].(string); ok && thinkingLevel != "" {
+		if isDeepSeekHost(p.apiBase) {
+			applyDeepSeekThinking(requestBody, thinkingLevel)
+		}
+	}
+
 	return requestBody
 }
 
@@ -221,6 +229,42 @@ func (p *Provider) prepareMessagesForRequest(messages []Message) []Message {
 
 func (p *Provider) isDeepSeekReasoningProvider() bool {
 	return p.providerName == "deepseek" || isDeepSeekHost(p.apiBase)
+}
+
+// SupportsThinking returns true for DeepSeek hosts (which support
+// V4 thinking mode via {"thinking": {"type": "enabled/disabled"}}).
+func (p *Provider) SupportsThinking() bool {
+	return isDeepSeekHost(p.apiBase)
+}
+
+// applyDeepSeekThinking injects the DeepSeek V4 thinking mode parameters
+// into the request body. thinkingLevel is one of:
+//   off / low / medium / high / xhigh / adaptive
+//
+// Mapping (per api-docs.deepseek.com/guides/thinking_mode):
+//   off → {"thinking": {"type": "disabled"}}
+//   low/medium → {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+//   high → {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+//   xhigh/adaptive → {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+func applyDeepSeekThinking(body map[string]any, thinkingLevel string) {
+	switch strings.ToLower(strings.TrimSpace(thinkingLevel)) {
+	case "off":
+		body["thinking"] = map[string]string{"type": "disabled"}
+	default:
+		// All other levels → thinking enabled
+		effort := "high"
+		switch strings.ToLower(strings.TrimSpace(thinkingLevel)) {
+		case "xhigh", "adaptive":
+			effort = "max"
+		}
+		body["thinking"] = map[string]string{"type": "enabled"}
+		body["reasoning_effort"] = effort
+
+		// Remove temperature + top_p when thinking is enabled —
+		// DeepSeek ignores them but some proxies may reject the combination.
+		delete(body, "temperature")
+		delete(body, "top_p")
+	}
 }
 
 func isDeepSeekHost(apiBase string) bool {
