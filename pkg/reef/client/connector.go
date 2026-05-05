@@ -46,6 +46,10 @@ type Connector struct {
 	// onGeneBroadcast is called when a gene_broadcast message is received
 	// from the server. The callback receives the parsed payload.
 	onGeneBroadcast func(reef.GeneBroadcastPayload)
+
+	// currentTaskIDs tracks active task IDs for heartbeat reporting.
+	currentTaskIDs []string
+	taskIDsMu       sync.Mutex
 }
 
 // ConnectorOptions configures a new Connector.
@@ -176,6 +180,25 @@ func (c *Connector) fireReconnectCallbacks(conn *websocket.Conn) {
 // message is received from the server.
 func (c *Connector) SetOnGeneBroadcast(cb func(reef.GeneBroadcastPayload)) {
 	c.onGeneBroadcast = cb
+}
+
+// SetCurrentTasks atomically replaces the tracked task ID list for heartbeat reporting.
+func (c *Connector) SetCurrentTasks(ids []string) {
+	c.taskIDsMu.Lock()
+	c.currentTaskIDs = append([]string{}, ids...)
+	c.taskIDsMu.Unlock()
+}
+
+// RemoveCurrentTask removes a task ID from the tracked list.
+func (c *Connector) RemoveCurrentTask(taskID string) {
+	c.taskIDsMu.Lock()
+	for i, id := range c.currentTaskIDs {
+		if id == taskID {
+			c.currentTaskIDs = append(c.currentTaskIDs[:i], c.currentTaskIDs[i+1:]...)
+			break
+		}
+	}
+	c.taskIDsMu.Unlock()
 }
 
 // Close shuts down the connector.
@@ -381,8 +404,13 @@ func (c *Connector) heartbeatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			c.taskIDsMu.Lock()
+			taskIDs := make([]string, len(c.currentTaskIDs))
+			copy(taskIDs, c.currentTaskIDs)
+			c.taskIDsMu.Unlock()
 			msg, _ := reef.NewMessage(reef.MsgHeartbeat, "", reef.HeartbeatPayload{
-				Timestamp: time.Now().UnixMilli(),
+				Timestamp:    time.Now().UnixMilli(),
+				CurrentTasks: taskIDs,
 			})
 			_ = c.Send(msg)
 		}

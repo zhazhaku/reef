@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -37,7 +36,7 @@ func setupAdminTest(t *testing.T) (*AdminServer, *Registry, *Scheduler) {
 	reg := NewRegistry(nil)
 	queue := NewTaskQueue(100, time.Hour)
 	sched := NewScheduler(reg, queue, SchedulerOptions{})
-	admin := NewAdminServer(reg, sched, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	admin := NewAdminServer(reg, sched, "", slog.Default())
 	return admin, reg, sched
 }
 
@@ -47,7 +46,7 @@ func TestAdminServer_HandleSubmitTask_QueueFull(t *testing.T) {
 	queue := NewTaskQueue(1, time.Hour)
 	sched := NewScheduler(reg, queue, SchedulerOptions{})
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	admin := NewAdminServer(reg, sched, logger)
+	admin := NewAdminServer(reg, sched, "", logger)
 
 	// Register a client so TryDispatch doesn't return after first iteration
 	// (it dequeues+dispatches, emptying the queue). We need to fill the queue
@@ -569,7 +568,7 @@ func TestScheduler_TryDispatch_DispatchFailsThenRequeue(t *testing.T) {
 
 	dispatchCalled := false
 	sched := NewScheduler(reg, queue, SchedulerOptions{
-		OnDispatch: func(taskID, clientID string) error {
+		OnDispatch: func(task *reef.Task, clientID string) error {
 			dispatchCalled = true
 			return &testError{"dispatch hook failed"}
 		},

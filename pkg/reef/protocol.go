@@ -18,6 +18,7 @@ const (
 	MsgRegister      MessageType = "register"
 	MsgRegisterAck   MessageType = "register_ack"
 	MsgRegisterNack  MessageType = "register_nack"
+	MsgError         MessageType = "error"
 	MsgHeartbeat     MessageType = "heartbeat"
 	MsgTaskDispatch  MessageType = "task_dispatch"
 	MsgTaskProgress  MessageType = "task_progress"
@@ -46,7 +47,7 @@ const (
 // IsValid returns true if the message type is a known enum value.
 func (mt MessageType) IsValid() bool {
 	switch mt {
-	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
+	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgError, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
 		MsgCancel, MsgPause, MsgResume, MsgControlAck:
 		return true
@@ -68,6 +69,7 @@ func (mt MessageType) IsValid() bool {
 type Message struct {
 	MsgType   MessageType     `json:"msg_type"`
 	TaskID    string          `json:"task_id,omitempty"`
+	Version   string          `json:"version,omitempty"`
 	Timestamp int64           `json:"timestamp"`        // Unix milliseconds
 	Payload   json.RawMessage `json:"payload"`          // concrete type depends on MsgType
 }
@@ -85,6 +87,7 @@ func NewMessage(msgType MessageType, taskID string, payload any) (Message, error
 	m = Message{
 		MsgType:   msgType,
 		TaskID:    taskID,
+		Version:   ProtocolVersion,
 		Timestamp: time.Now().UnixMilli(),
 		Payload:   payloadBytes,
 	}
@@ -125,23 +128,32 @@ type RegisterNackPayload struct {
 	Reason string `json:"reason"`
 }
 
+// ErrorPayload is sent as a generic error response to an invalid or unprocessable message.
+type ErrorPayload struct {
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	OriginalType string `json:"original_type,omitempty"`
+}
+
 // HeartbeatPayload is sent periodically by Client.
 type HeartbeatPayload struct {
-	Timestamp int64 `json:"timestamp"`
+	Timestamp    int64    `json:"timestamp"`
+	CurrentTasks []string `json:"current_tasks,omitempty"`
 }
 
 // TaskDispatchPayload is sent by Server to assign a task to a Client.
 type TaskDispatchPayload struct {
-	TaskID         string            `json:"task_id"`
-	Instruction    string            `json:"instruction"`
-	Context        map[string]any    `json:"context,omitempty"`
-	RequiredRole   string            `json:"required_role"`
-	RequiredSkills []string          `json:"required_skills,omitempty"`
-	MaxRetries     int               `json:"max_retries"`
-	TimeoutMs      int64             `json:"timeout_ms"`
-	ModelHint      string            `json:"model_hint,omitempty"`
-	CreatedAt      int64             `json:"created_at"`
-	ReplyTo        *ReplyToContext   `json:"reply_to,omitempty"`
+	TaskID           string            `json:"task_id"`
+	Instruction      string            `json:"instruction"`
+	Context          map[string]any    `json:"context,omitempty"`
+	RequiredRole     string            `json:"required_role"`
+	RequiredSkills   []string          `json:"required_skills,omitempty"`
+	MaxRetries       int               `json:"max_retries"`
+	TimeoutMs        int64             `json:"timeout_ms"`
+	ModelHint        string            `json:"model_hint,omitempty"`
+	CreatedAt        int64             `json:"created_at"`
+	ReplyTo          *ReplyToContext   `json:"reply_to,omitempty"`
+	PreviousAttempts []AttemptRecord   `json:"previous_attempts,omitempty"`
 }
 
 // TaskProgressPayload is sent by Client to report task execution progress.
@@ -411,6 +423,15 @@ func ValidateProtocolVersion(v string) error {
 		return fmt.Errorf("unsupported protocol version %q (expected %s)", v, ProtocolVersion)
 	}
 	return nil
+}
+
+// ValidateVersion validates the version field in the Message envelope.
+// If version is empty, it is accepted for backward compatibility.
+func (m Message) ValidateVersion() error {
+	if m.Version == "" {
+		return nil // backward compatible: empty version = ok
+	}
+	return ValidateProtocolVersion(m.Version)
 }
 
 // NewRaftLeaderChangeMessage creates a raft_leader_change message.

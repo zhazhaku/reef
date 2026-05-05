@@ -1,15 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/zhazhaku/reef/pkg/reef"
+	evolutionsrv "github.com/zhazhaku/reef/pkg/reef/evolution/server"
 )
 
 var upgrader = websocket.Upgrader{
@@ -41,35 +44,19 @@ type WebSocketServer struct {
 	pendingMu       sync.Mutex
 	pendingControls map[string][]reef.Message // buffered control messages for disconnected clients
 
-	// maxPendingControlsPerClient limits buffered control messages per disconnected client.
-	// When exceeded, oldest messages are dropped (sliding window).
-	maxPendingControlsPerClient int // default 100
-
-	// geneHandler handles gene_submit messages (Phase 6 evolution engine).
-	// When nil (default), gene_submit messages are logged and ignored.
-	geneHandler GeneSubmitHandler
-}
-
-// GeneSubmitHandler is the interface for handling gene_submit messages.
-// Implementations route genes through the evolution pipeline (gatekeeper → broadcaster → merger).
-type GeneSubmitHandler interface {
-	HandleGeneSubmission(clientID string, msg reef.Message) error
-}
-
-// SetGeneSubmitHandler sets the handler for gene_submit messages.
-func (s *WebSocketServer) SetGeneSubmitHandler(h GeneSubmitHandler) {
-	s.geneHandler = h
+	// evolutionHub is the server-side evolution engine hub.
+	// When nil (default), gene_submit messages are silently accepted and logged.
+	evolutionHub *evolutionsrv.EvolutionHub
 }
 
 // NewWebSocketServer creates a WebSocket acceptor.
 func NewWebSocketServer(registry *Registry, scheduler *Scheduler, token string, logger *slog.Logger) *WebSocketServer {
 	return &WebSocketServer{
-		registry:                    registry,
-		scheduler:                   scheduler,
-		token:                       token,
-		logger:                      logger,
-		pendingControls:             make(map[string][]reef.Message),
-		maxPendingControlsPerClient: 100,
+		registry:        registry,
+		scheduler:       scheduler,
+		token:           token,
+		logger:          logger,
+		pendingControls: make(map[string][]reef.Message),
 	}
 }
 
@@ -141,8 +128,12 @@ func (s *WebSocketServer) handshake(conn *Conn) error {
 	}
 
 	conn.id = payload.ClientID
+	if conn.id == "" {
+		conn.id = "client-" + strconv.Itoa(int(time.Now().UnixMilli()%100000)) + "-" + strconv.FormatInt(time.Now().UnixNano()%1000000, 36)
+		s.logger.Info("auto-assigned client ID", slog.String("client_id", conn.id))
+	}
 	info := &reef.ClientInfo{
-		ID:            payload.ClientID,
+		ID:            conn.id,
 		Role:          payload.Role,
 		Skills:        payload.Skills,
 		Providers:     payload.Providers,
@@ -153,17 +144,20 @@ func (s *WebSocketServer) handshake(conn *Conn) error {
 	}
 	conn.registry.Register(info)
 
+	// Notify scheduler that a new client is available for task dispatch
+	s.scheduler.HandleClientAvailable(conn.id)
+
 	// Flush any pending control messages for this client
 	s.pendingMu.Lock()
-	pending := s.pendingControls[payload.ClientID]
-	delete(s.pendingControls, payload.ClientID)
+	pending := s.pendingControls[conn.id]
+	delete(s.pendingControls, conn.id)
 	s.pendingMu.Unlock()
 	for _, m := range pending {
 		conn.sendCh <- m
 	}
 
 	ack, _ := reef.NewMessage(reef.MsgRegisterAck, "", reef.RegisterAckPayload{
-		ClientID:   payload.ClientID,
+		ClientID:   conn.id,
 		ServerTime: time.Now().UnixMilli(),
 	})
 	conn.sendCh <- ack
@@ -198,10 +192,28 @@ func (c *Conn) readLoop(s *WebSocketServer) {
 			continue
 		}
 
+		if err := msg.ValidateVersion(); err != nil {
+			s.logger.Warn("protocol version mismatch",
+				slog.String("client_id", c.id),
+				slog.String("version", msg.Version),
+				slog.String("error", err.Error()))
+			c.sendMessage(reef.MsgError, msg.TaskID, reef.ErrorPayload{
+				Code:    "ERR_VERSION",
+				Message: err.Error(),
+			})
+			continue
+		}
+
 		if !msg.MsgType.IsValid() {
 			s.logger.Warn("unknown message type",
 				slog.String("client_id", c.id),
 				slog.String("msg_type", string(msg.MsgType)))
+			// Send an error response so the Client knows the message was rejected
+			c.sendMessage(reef.MsgError, msg.TaskID, reef.ErrorPayload{
+				Code:         "ERR_UNKNOWN_TYPE",
+				Message:      "unknown message type: " + string(msg.MsgType),
+				OriginalType: string(msg.MsgType),
+			})
 			continue
 		}
 
@@ -272,19 +284,45 @@ func (s *WebSocketServer) handleMessage(c *Conn, msg reef.Message) {
 
 	case reef.MsgTaskCompleted:
 		var payload reef.TaskCompletedPayload
-		_ = msg.DecodePayload(&payload)
+		if err := msg.DecodePayload(&payload); err != nil {
+			s.logger.Warn("decode task_completed payload failed",
+				slog.String("client_id", c.id),
+				slog.String("task_id", msg.TaskID),
+				slog.String("error", err.Error()))
+			break
+		}
 		result := &reef.TaskResult{Metadata: payload.Result}
-		_ = s.scheduler.HandleTaskCompleted(msg.TaskID, result)
+		// Extract text from metadata if present (client sends {"text": result})
+		if text, ok := payload.Result["text"].(string); ok && text != "" {
+			result.Text = text
+		}
+		if err := s.scheduler.HandleTaskCompleted(msg.TaskID, result); err != nil {
+			s.logger.Warn("handle task completed failed",
+				slog.String("client_id", c.id),
+				slog.String("task_id", msg.TaskID),
+				slog.String("error", err.Error()))
+		}
 
 	case reef.MsgTaskFailed:
 		var payload reef.TaskFailedPayload
-		_ = msg.DecodePayload(&payload)
+		if err := msg.DecodePayload(&payload); err != nil {
+			s.logger.Warn("decode task_failed payload failed",
+				slog.String("client_id", c.id),
+				slog.String("task_id", msg.TaskID),
+				slog.String("error", err.Error()))
+			break
+		}
 		taskErr := &reef.TaskError{
 			Type:    payload.ErrorType,
 			Message: payload.ErrorMessage,
 			Detail:  payload.ErrorDetail,
 		}
-		_ = s.scheduler.HandleTaskFailed(msg.TaskID, taskErr, payload.AttemptHistory)
+		if err := s.scheduler.HandleTaskFailed(msg.TaskID, taskErr, payload.AttemptHistory); err != nil {
+			s.logger.Warn("handle task failed failed",
+				slog.String("client_id", c.id),
+				slog.String("task_id", msg.TaskID),
+				slog.String("error", err.Error()))
+		}
 
 	case reef.MsgControlAck:
 		// Log control acknowledgments
@@ -296,13 +334,13 @@ func (s *WebSocketServer) handleMessage(c *Conn, msg reef.Message) {
 			slog.String("task_id", payload.TaskID))
 
 	case reef.MsgGeneSubmit:
-		if s.geneHandler == nil {
-			s.logger.Warn("gene_submit received but no GeneSubmitHandler configured",
+		if s.evolutionHub == nil {
+			s.logger.Warn("gene_submit received but EvolutionHub not initialized",
 				slog.String("client_id", c.id))
 			break
 		}
-		if err := s.geneHandler.HandleGeneSubmission(c.id, msg); err != nil {
-			s.logger.Error("gene submission failed",
+		if err := s.evolutionHub.HandleGeneSubmission(context.Background(), msg, c.id); err != nil {
+			s.logger.Error("handle gene submission",
 				slog.String("client_id", c.id),
 				slog.String("error", err.Error()))
 		}
@@ -322,12 +360,7 @@ func (s *WebSocketServer) SendMessage(clientID string, msg reef.Message) error {
 		// Buffer control messages for disconnected clients
 		if isControlMessage(msg.MsgType) {
 			s.pendingMu.Lock()
-			pending := s.pendingControls[clientID]
-			if len(pending) >= s.maxPendingControlsPerClient {
-				// Sliding window: drop oldest, keep newest
-				pending = pending[1:]
-			}
-			s.pendingControls[clientID] = append(pending, msg)
+			s.pendingControls[clientID] = append(s.pendingControls[clientID], msg)
 			s.pendingMu.Unlock()
 			return nil
 		}
@@ -394,4 +427,14 @@ func (c *Conn) close() {
 	c.mu.Unlock()
 	close(c.sendCh)
 	c.ws.Close()
+}
+
+// SetEvolutionHub sets the evolution hub for gene submission handling.
+func (s *WebSocketServer) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
+	s.evolutionHub = hub
+}
+
+// GetEvolutionHub returns the current evolution hub, or nil if not set.
+func (s *WebSocketServer) GetEvolutionHub() *evolutionsrv.EvolutionHub {
+	return s.evolutionHub
 }

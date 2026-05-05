@@ -23,8 +23,8 @@ func TestScheduler_SubmitAndDispatch(t *testing.T) {
 
 	var dispatchedTaskID, dispatchedClientID string
 	sch := NewScheduler(reg, queue, SchedulerOptions{
-		OnDispatch: func(taskID, clientID string) error {
-			dispatchedTaskID = taskID
+		OnDispatch: func(task *reef.Task, clientID string) error {
+			dispatchedTaskID = task.ID
 			dispatchedClientID = clientID
 			return nil
 		},
@@ -141,7 +141,7 @@ func TestScheduler_HandleTaskFailed_EscalationReassign(t *testing.T) {
 	})
 
 	queue := NewTaskQueue(10, time.Hour)
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 2})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: slog.Default(), MaxEscalations: 2})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -178,7 +178,7 @@ func TestScheduler_HandleTaskFailed_Terminate(t *testing.T) {
 	queue := NewTaskQueue(10, time.Hour)
 	// MaxEscalations > 0 so it doesn't immediately go to ToAdmin;
 	// only one client exists so matchClient returns nil -> Terminate.
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 1})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: slog.Default(), MaxEscalations: 1})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)
@@ -205,7 +205,7 @@ func TestScheduler_HandleTaskFailed_EscalateToAdmin(t *testing.T) {
 
 	queue := NewTaskQueue(10, time.Hour)
 	// MaxEscalations: 0 forces immediate ToAdmin decision.
-	sch := NewScheduler(reg, queue, SchedulerOptions{MaxEscalations: 0})
+	sch := NewScheduler(reg, queue, SchedulerOptions{Logger: slog.Default(), MaxEscalations: 0})
 
 	task := reef.NewTask("t1", "write code", "coder", nil)
 	_ = sch.Submit(task)

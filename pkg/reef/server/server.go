@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -10,122 +11,84 @@ import (
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
+	evolutionsrv "github.com/zhazhaku/reef/pkg/reef/evolution/server"
+	"github.com/zhazhaku/reef/pkg/reef/server/notify"
+	"github.com/zhazhaku/reef/pkg/reef/server/store"
+	"github.com/zhazhaku/reef/pkg/reef/server/ui"
 )
 
 // Config holds all server configuration.
 type Config struct {
-	WebSocketAddr    string
-	AdminAddr        string
-	Token            string
-	HeartbeatTimeout time.Duration
-	HeartbeatScan    time.Duration
-	MaxMissedHeartbeats int // number of consecutive missed heartbeats before declaring stale (default 3)
-	QueueMaxLen      int
-	QueueMaxAge      time.Duration
-	MaxEscalations   int
-
-	// Server mode: "standalone" (default) or "raft"
-	Mode string `json:"mode"`
-
-	// Raft configuration — only used when Mode == "raft"
-	Raft *RaftConfig `json:"raft,omitempty"`
+	WebSocketAddr         string
+	AdminAddr             string
+	Token                 string
+	HeartbeatTimeout      time.Duration
+	HeartbeatScan         time.Duration
+	QueueMaxLen           int
+	QueueMaxAge           time.Duration
+	MaxEscalations        int
+	WebhookURLs           []string
+	StoreType             string // "memory" (default) or "sqlite"
+	StorePath             string // SQLite database file path
+	TLS                   *TLSConfig
+	Notifications         []NotificationConfig
+	Strategy              string        // "least_load" | "round_robin" | "affinity"
+	DefaultTimeoutMs      int64         // default task timeout in ms (0 = 5min)
+	TimeoutScanIntervalSec int          // timeout scanner interval in seconds (0 = 10s)
+	StarvationThresholdMs  int64        // starvation boost threshold in ms (0 = disabled)
 }
 
-// RaftConfig holds Raft-specific configuration for the server.
-// This mirrors pkg/reef/raft.RaftConfig but lives in the server package
-// to avoid import cycles.
-type RaftConfig struct {
-	NodeID          uint64   `json:"node_id"`
-	PeerAddrs       []string `json:"peer_addrs"` // e.g. ["127.0.0.1:9090", "127.0.0.1:9091"]
-	RaftAddr        string   `json:"raft_addr"`  // this node's Raft listen addr
-	DataDir         string   `json:"data_dir"`
-	ElectionTimeoutMs int    `json:"election_timeout_ms"`
-	HeartbeatIntervalMs int `json:"heartbeat_interval_ms"`
-	CheckQuorum     bool     `json:"check_quorum"`
-	PreVote         bool     `json:"pre_vote"`
-}
-
-// DefaultRaftConfig returns default Raft configuration.
-func DefaultRaftConfig() RaftConfig {
-	return RaftConfig{
-		ElectionTimeoutMs:  1000,
-		HeartbeatIntervalMs: 100,
-		CheckQuorum:        true,
-		PreVote:            true,
-		DataDir:            "./reef_data",
-	}
-}
-
-// Validate checks the Raft server config for common errors.
-func (c *RaftConfig) Validate() error {
-	if c.NodeID == 0 {
-		return fmt.Errorf("raft: NodeID must be non-zero")
-	}
-	if c.RaftAddr == "" {
-		return fmt.Errorf("raft: RaftAddr must be set")
-	}
-	if c.ElectionTimeoutMs <= 0 {
-		return fmt.Errorf("raft: ElectionTimeoutMs must be positive, got %d", c.ElectionTimeoutMs)
-	}
-	if c.HeartbeatIntervalMs <= 0 {
-		return fmt.Errorf("raft: HeartbeatIntervalMs must be positive, got %d", c.HeartbeatIntervalMs)
-	}
-	if c.ElectionTimeoutMs <= c.HeartbeatIntervalMs {
-		return fmt.Errorf("raft: ElectionTimeoutMs (%d) must be > HeartbeatIntervalMs (%d)",
-			c.ElectionTimeoutMs, c.HeartbeatIntervalMs)
-	}
-	return nil
-}
-
-// Validate checks the server Config for correctness.
-func (c *Config) Validate() error {
-	if c.Mode == "" {
-		c.Mode = "standalone" // Default
-	}
-	switch c.Mode {
-	case "standalone":
-		// No additional validation needed
-	case "raft":
-		if c.Raft == nil {
-			return fmt.Errorf("raft config required when mode=raft")
-		}
-		if err := c.Raft.Validate(); err != nil {
-			return fmt.Errorf("raft config invalid: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown server mode: %s", c.Mode)
-	}
-	return nil
+// NotificationConfig configures a notification channel.
+type NotificationConfig struct {
+	Type       string   `json:"type"`                  // "webhook" | "slack" | "smtp" | "feishu" | "wecom"
+	URL        string   `json:"url,omitempty"`         // Webhook URL
+	WebhookURL string   `json:"webhook_url,omitempty"` // Slack webhook URL
+	HookURL    string   `json:"hook_url,omitempty"`    // Feishu/WeCom webhook URL
+	SMTPHost   string   `json:"smtp_host,omitempty"`   // SMTP host
+	SMTPPort   int      `json:"smtp_port,omitempty"`   // SMTP port
+	From       string   `json:"from,omitempty"`        // SMTP from address
+	To         []string `json:"to,omitempty"`          // SMTP recipients
+	Username   string   `json:"username,omitempty"`     // SMTP username
+	Password   string   `json:"password,omitempty"`     // SMTP password
 }
 
 // DefaultConfig returns a configuration with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		WebSocketAddr:        ":8080",
-		AdminAddr:            ":8081",
-		Token:                "",
-		HeartbeatTimeout:     30 * time.Second,
-		HeartbeatScan:        5 * time.Second,
-		MaxMissedHeartbeats:  3,
-		QueueMaxLen:          1000,
-		QueueMaxAge:          10 * time.Minute,
-		MaxEscalations:       2,
+		WebSocketAddr:    ":8080",
+		AdminAddr:        ":8081",
+		Token:            "",
+		HeartbeatTimeout: 30 * time.Second,
+		HeartbeatScan:    5 * time.Second,
+		QueueMaxLen:      1000,
+		QueueMaxAge:      10 * time.Minute,
+		MaxEscalations:   2,
 	}
 }
 
 // Server is the top-level Reef Server orchestrator.
 type Server struct {
-	config    Config
-	registry  *Registry
-	queue     *TaskQueue
-	scheduler *Scheduler
-	wsServer  *WebSocketServer
-	admin     *AdminServer
-	logger    *slog.Logger
+	config         Config
+	registry       *Registry
+	queue          Queue
+	scheduler      *Scheduler
+	wsServer       *WebSocketServer
+	admin          *AdminServer
+	ui             *ui.Handler
+	logger         *slog.Logger
 
-	httpServer   *http.Server
-	wsHTTPServer *http.Server
-	cancelCtx    context.CancelFunc
+	httpServer     *http.Server
+	wsHTTPServer   *http.Server
+	cancelCtx      context.CancelFunc
+	bridge         *ServerBridge
+	timeoutScanner *TimeoutScanner
+	evolutionHub   *evolutionsrv.EvolutionHub
+}
+
+// Bridge returns the ReefBridge for in-process access to the scheduler.
+// Used by the AgentLoop's coordination tools.
+func (s *Server) Bridge() *ServerBridge {
+	return s.bridge
 }
 
 // NewServer creates and wires all server components.
@@ -141,29 +104,147 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		logger.Warn("client marked stale", slog.String("client_id", clientID))
 	})
 
-	// Task queue
-	s.queue = NewTaskQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
+	// Task queue — use priority queue with optional persistence
+	var taskQueue Queue
+	if cfg.StoreType == "sqlite" && cfg.StorePath != "" {
+		sqliteStore, err := store.NewSQLiteStore(cfg.StorePath)
+		if err != nil {
+			logger.Error("failed to open SQLite store, falling back to memory",
+				slog.String("error", err.Error()))
+			taskQueue = NewPriorityQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
+		} else {
+			logger.Info("using SQLite persistent store", slog.String("path", cfg.StorePath))
+			// Use persistent wrapper around priority queue
+			taskQueue = NewPersistentPriorityQueue(sqliteStore, cfg.QueueMaxLen, cfg.QueueMaxAge, logger)
+		}
+	} else {
+		taskQueue = NewPriorityQueue(cfg.QueueMaxLen, cfg.QueueMaxAge)
+	}
+	s.queue = taskQueue
+
+	// Notification manager
+	notifyMgr := notify.NewManager(logger)
+	for _, nc := range cfg.Notifications {
+		switch nc.Type {
+		case "webhook":
+			urls := []string{}
+			if nc.URL != "" {
+				urls = append(urls, nc.URL)
+			}
+			notifyMgr.Add(notify.NewWebhookNotifier(urls))
+		case "slack":
+			notifyMgr.Add(notify.NewSlackNotifier(nc.WebhookURL))
+		case "smtp":
+			notifyMgr.Add(notify.NewSMTPNotifier(nc.SMTPHost, nc.SMTPPort, nc.Username, nc.Password, nc.From, nc.To))
+		case "feishu":
+			notifyMgr.Add(notify.NewFeishuNotifier(nc.HookURL))
+		case "wecom":
+			notifyMgr.Add(notify.NewWeComNotifier(nc.HookURL))
+		}
+	}
+	// Fallback: if no notifications configured but legacy webhook_urls is set,
+	// auto-create a WebhookNotifier for backward compatibility.
+	if notifyMgr.Count() == 0 && len(cfg.WebhookURLs) > 0 {
+		notifyMgr.Add(notify.NewWebhookNotifier(cfg.WebhookURLs))
+	}
+
+	// Match strategy
+	var strategy MatchStrategy
+	switch cfg.Strategy {
+	case "round_robin":
+		strategy = &RoundRobinStrategy{}
+	case "affinity":
+		// Created below after scheduler is available
+	default:
+		// "least_load" or empty → nil (default = LeastLoad)
+	}
 
 	// Scheduler
 	s.scheduler = NewScheduler(s.registry, s.queue, SchedulerOptions{
 		MaxEscalations: cfg.MaxEscalations,
-		OnDispatch: func(taskID, clientID string) error {
-			// Actually send the task_dispatch message via WebSocket
+		WebhookURLs:    cfg.WebhookURLs,
+		Logger:         logger,
+		NotifyManager:  notifyMgr,
+		MatchStrategy:  strategy,
+		OnDispatch: func(task *reef.Task, clientID string) error {
 			if s.wsServer == nil {
 				return fmt.Errorf("websocket server not ready")
 			}
-			return s.wsServer.SendMessage(clientID, msgTaskDispatch(taskID))
+			return s.wsServer.SendMessage(clientID, msgTaskDispatch(task))
 		},
 		OnRequeue: func(task *reef.Task) {
 			logger.Info("task requeued", slog.String("task_id", task.ID))
 		},
+		OnTaskStateChanged: func(task *reef.Task) {
+			// Persist state changes to the SQLite store.
+			if sa, ok := s.queue.(storeAccess); ok {
+				if err := sa.Store().UpdateTask(task); err != nil {
+					logger.Warn("failed to persist task state change",
+						slog.String("task_id", task.ID),
+						slog.String("error", err.Error()))
+				}
+			}
+		},
 	})
+
+	// Register restored tasks from persistent queue into the scheduler's index.
+	// PersistentQueue.restore() loads non-terminal tasks into the queue cache,
+	// but the scheduler's internal task map needs to be synced for GetTask() etc.
+	//
+	// IMPORTANT: Register the SAME pointers from the queue's snapshot first.
+	// The queue cache and the store may return different task objects; only the
+	// queue's copies are modified during dispatch/completion.
+	for _, task := range s.queue.Snapshot() {
+		s.scheduler.RegisterTask(task)
+	}
+
+	// Also register terminal tasks (completed/failed/etc.) from the store
+	// so they're queryable via GetTask() and admin endpoints.
+	if sa, ok := s.queue.(storeAccess); ok {
+		terminalTasks, err := sa.Store().ListTasks(store.TaskFilter{
+			Statuses: []reef.TaskStatus{
+				reef.TaskCompleted, reef.TaskFailed, reef.TaskCancelled, reef.TaskEscalated,
+			},
+		})
+		if err == nil {
+			for _, task := range terminalTasks {
+				s.scheduler.RegisterTask(task)
+			}
+		}
+	}
 
 	// WebSocket server
 	s.wsServer = NewWebSocketServer(s.registry, s.scheduler, cfg.Token, logger)
 
 	// Admin server
-	s.admin = NewAdminServer(s.registry, s.scheduler, logger)
+	s.admin = NewAdminServer(s.registry, s.scheduler, cfg.Token, logger)
+
+	// Web UI dashboard
+	s.ui = ui.NewHandler(s.registry, s.scheduler, time.Now(), logger)
+
+	// Bridge for in-process coordination tools
+	s.bridge = NewServerBridge(s.scheduler, s.registry)
+
+	// Post-init: affinity strategy needs the scheduler for task history
+	if cfg.Strategy == "affinity" {
+		s.scheduler.matchStrategy = NewAffinityStrategy(s.scheduler.TasksSnapshot)
+	}
+
+	// Timeout scanner
+	timeoutInterval := time.Duration(cfg.TimeoutScanIntervalSec) * time.Second
+	if timeoutInterval <= 0 {
+		timeoutInterval = 10 * time.Second
+	}
+	s.timeoutScanner = NewTimeoutScanner(
+		timeoutInterval,
+		logger,
+		s.scheduler,
+		nil, // store is handled separately via OnTaskStateChanged
+	)
+	// Wire up store if available
+	if sa, ok := s.queue.(storeAccess); ok {
+		s.timeoutScanner.store = sa.Store()
+	}
 
 	return s
 }
@@ -172,6 +253,17 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelCtx = cancel
+
+	// Load TLS config if enabled
+	var tlsCfg *tls.Config
+	if s.config.TLS != nil && s.config.TLS.Enabled {
+		var err error
+		tlsCfg, err = s.config.TLS.LoadTLSConfig()
+		if err != nil {
+			return fmt.Errorf("load TLS: %w", err)
+		}
+		s.logger.Info("TLS enabled")
+	}
 
 	// WebSocket HTTP server
 	wsMux := http.NewServeMux()
@@ -184,6 +276,7 @@ func (s *Server) Start() error {
 	// Admin HTTP server
 	adminMux := http.NewServeMux()
 	s.admin.RegisterRoutes(adminMux)
+	s.ui.RegisterRoutes(adminMux)
 	s.httpServer = &http.Server{
 		Addr:    s.config.AdminAddr,
 		Handler: adminMux,
@@ -199,15 +292,32 @@ func (s *Server) Start() error {
 		return fmt.Errorf("admin listen: %w", err)
 	}
 
+	// Wrap with TLS if configured
+	if tlsCfg != nil {
+		wsListener = tls.NewListener(wsListener, tlsCfg)
+		adminListener = tls.NewListener(adminListener, tlsCfg)
+	}
+
+	wsScheme := "ws"
+	adminScheme := "http"
+	if tlsCfg != nil {
+		wsScheme = "wss"
+		adminScheme = "https"
+	}
+
 	go func() {
-		s.logger.Info("websocket server listening", slog.String("addr", s.config.WebSocketAddr))
+		s.logger.Info("websocket server listening",
+			slog.String("addr", s.config.WebSocketAddr),
+			slog.String("scheme", wsScheme))
 		if err := s.wsHTTPServer.Serve(wsListener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("websocket server error", slog.String("error", err.Error()))
 		}
 	}()
 
 	go func() {
-		s.logger.Info("admin server listening", slog.String("addr", s.config.AdminAddr))
+		s.logger.Info("admin server listening",
+			slog.String("addr", s.config.AdminAddr),
+			slog.String("scheme", adminScheme))
 		if err := s.httpServer.Serve(adminListener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("admin server error", slog.String("error", err.Error()))
 		}
@@ -216,6 +326,11 @@ func (s *Server) Start() error {
 	// Heartbeat scanner
 	go s.heartbeatScanner(ctx)
 
+	// Timeout scanner
+	if s.timeoutScanner != nil {
+		go s.timeoutScanner.Run(ctx)
+	}
+
 	return nil
 }
 
@@ -223,6 +338,11 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	if s.cancelCtx != nil {
 		s.cancelCtx()
+	}
+
+	// Stop timeout scanner
+	if s.timeoutScanner != nil {
+		s.timeoutScanner.Stop()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -249,15 +369,12 @@ func (s *Server) heartbeatScanner(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-		// Compute stale timeout from MaxMissedHeartbeats * HeartbeatScan
-			timeout := time.Duration(s.config.MaxMissedHeartbeats) * s.config.HeartbeatScan
-			staleIDs := s.registry.ScanStale(timeout)
+			staleIDs := s.registry.ScanStale(s.config.HeartbeatTimeout)
 			for _, id := range staleIDs {
-				// Pause any in-flight tasks for this client
+				// Pause any in-flight tasks for this client (via locked scheduler method)
 				for _, task := range s.scheduler.TasksSnapshot() {
 					if task.AssignedClient == id && task.Status == reef.TaskRunning {
-						_ = task.Transition(reef.TaskPaused)
-						task.PauseReason = "disconnect"
+						_ = s.scheduler.HandleTaskPaused(task.ID, "disconnect")
 					}
 				}
 			}
@@ -265,7 +382,10 @@ func (s *Server) heartbeatScanner(ctx context.Context) {
 			expired := s.queue.Expire(time.Now())
 			for _, task := range expired {
 				s.logger.Warn("task expired from queue", slog.String("task_id", task.ID))
-				_ = task.Transition(reef.TaskFailed)
+				_ = s.scheduler.HandleTaskFailed(task.ID, &reef.TaskError{
+					Type:    "expired",
+					Message: "task expired from queue",
+				}, nil)
 			}
 		}
 	}
@@ -278,16 +398,42 @@ func (s *Server) Registry() *Registry { return s.registry }
 func (s *Server) Scheduler() *Scheduler { return s.scheduler }
 
 // Queue exposes the task queue for testing.
-func (s *Server) Queue() *TaskQueue { return s.queue }
+func (s *Server) Queue() Queue { return s.queue }
 
 // WSServer exposes the WebSocket server for testing.
 func (s *Server) WSServer() *WebSocketServer { return s.wsServer }
 
-// msgTaskDispatch creates a task_dispatch message for the given task ID.
-// The actual payload is populated by the caller (scheduler) with full task details.
-func msgTaskDispatch(taskID string) reef.Message {
-	msg, _ := reef.NewMessage(reef.MsgTaskDispatch, taskID, reef.TaskDispatchPayload{
-		TaskID: taskID,
+// AdminHandler exposes the admin server for external route registration.
+func (s *Server) AdminHandler() *AdminServer { return s.admin }
+
+// UIHandler exposes the UI handler for external access (e.g., event publishing).
+func (s *Server) UIHandler() *ui.Handler { return s.ui }
+
+// SetEvolutionHub sets the evolution hub and wires it into WebSocket server and admin server.
+func (s *Server) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
+	s.evolutionHub = hub
+	s.wsServer.SetEvolutionHub(hub)
+	s.admin.SetEvolutionHub(hub)
+}
+
+// GetEvolutionHub returns the current evolution hub, or nil if not set.
+func (s *Server) GetEvolutionHub() *evolutionsrv.EvolutionHub {
+	return s.evolutionHub
+}
+
+// msgTaskDispatch creates a task_dispatch message populated from the full task.
+func msgTaskDispatch(task *reef.Task) reef.Message {
+	msg, _ := reef.NewMessage(reef.MsgTaskDispatch, task.ID, reef.TaskDispatchPayload{
+		TaskID:           task.ID,
+		Instruction:      task.Instruction,
+		RequiredRole:     task.RequiredRole,
+		RequiredSkills:   task.RequiredSkills,
+		MaxRetries:       task.MaxRetries,
+		TimeoutMs:        task.TimeoutMs,
+		ModelHint:        task.ModelHint,
+		CreatedAt:        task.CreatedAt.UnixMilli(),
+		ReplyTo:          task.ReplyTo,
+		PreviousAttempts: task.AttemptHistory,
 	})
 	return msg
 }

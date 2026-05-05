@@ -56,3 +56,24 @@ func (c *ClientInfo) RemainingCapacity() int {
 	}
 	return rem
 }
+
+// SystemStatus describes the overall system state for API queries.
+type SystemStatus struct {
+	ConnectedClients  int              `json:"connected_clients"`
+	DisconnectedCount int              `json:"disconnected_count"`
+	QueuedTasks       int              `json:"queued_tasks"`
+	RunningTasks      int              `json:"running_tasks"`
+	CompletedTasks    int              `json:"completed_tasks"`
+	FailedTasks       int              `json:"failed_tasks"`
+	Clients           []ClientSnapshot `json:"clients"`
+}
+
+// ClientSnapshot is a read-only view of a connected client's state.
+type ClientSnapshot struct {
+	ClientID    string `json:"client_id"`
+	Role        string `json:"role"`
+	Skills      []string `json:"skills"`
+	State       string `json:"state"`
+	CurrentLoad int    `json:"current_load"`
+	Capacity    int    `json:"capacity"`
+}

@@ -1,89 +1,105 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/zhazhaku/reef/pkg/reef"
-	evserver "github.com/zhazhaku/reef/pkg/reef/evolution/server"
+	"github.com/zhazhaku/reef/pkg/reef/server/notify"
 )
 
 // Scheduler matches tasks to available Clients and handles dispatch.
 type Scheduler struct {
 	registry *Registry
-	queue    *TaskQueue
+	queue    Queue
+	logger   *slog.Logger
 
 	mu    sync.RWMutex
-	tasks map[string]*reef.Task // global task index by ID
+	tasks map[string]*reef.Task
 
-	maxEscalations int
-	onDispatch     func(taskID, clientID string) error
-	onRequeue      func(task *reef.Task)
-
-	claimBoard *evserver.ClaimBoard // nil if disabled
+	maxEscalations     int
+	webhookURLs        []string
+	notifyManager      *notify.Manager
+	matchStrategy      MatchStrategy
+	onDispatch         func(task *reef.Task, clientID string) error
+	onRequeue          func(task *reef.Task)
+	onTaskStateChanged func(task *reef.Task)
+	resultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
 }
 
 // SchedulerOptions configures the scheduler.
 type SchedulerOptions struct {
-	MaxEscalations int
-	OnDispatch     func(taskID, clientID string) error
-	OnRequeue      func(task *reef.Task)
+	MaxEscalations     int
+	WebhookURLs        []string
+	Logger             *slog.Logger
+	NotifyManager      *notify.Manager
+	MatchStrategy      MatchStrategy
+	OnDispatch         func(task *reef.Task, clientID string) error
+	OnRequeue          func(task *reef.Task)
+	OnTaskStateChanged func(task *reef.Task)
+	ResultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
 }
 
 // NewScheduler creates a scheduler bound to a registry and queue.
-func NewScheduler(registry *Registry, queue *TaskQueue, opts SchedulerOptions) *Scheduler {
+func NewScheduler(registry *Registry, queue Queue, opts SchedulerOptions) *Scheduler {
 	if opts.MaxEscalations < 0 {
 		opts.MaxEscalations = 2
 	}
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.NewTextHandler(nil, nil))
+	}
 	return &Scheduler{
-		registry:       registry,
-		queue:          queue,
-		tasks:          make(map[string]*reef.Task),
-		maxEscalations: opts.MaxEscalations,
-		onDispatch:     opts.OnDispatch,
-		onRequeue:      opts.OnRequeue,
+		registry:           registry,
+		queue:              queue,
+		logger:             opts.Logger,
+		tasks:              make(map[string]*reef.Task),
+		maxEscalations:     opts.MaxEscalations,
+		webhookURLs:        opts.WebhookURLs,
+		notifyManager:      opts.NotifyManager,
+		matchStrategy:      opts.MatchStrategy,
+		onDispatch:         opts.OnDispatch,
+		onRequeue:          opts.OnRequeue,
+		onTaskStateChanged: opts.OnTaskStateChanged,
+		resultCallback:     opts.ResultCallback,
 	}
 }
 
 // Submit creates a new task and attempts to schedule it immediately.
-// If no matching client is available, the task is queued.
-// When claimBoard is configured and task priority ≤ MaxPriorityClaim,
-// the task is routed through the claim board for autonomous claiming.
 func (s *Scheduler) Submit(task *reef.Task) error {
 	s.mu.Lock()
 	s.tasks[task.ID] = task
 	s.mu.Unlock()
 
-	if err := task.Transition(reef.TaskQueued); err != nil {
-		return fmt.Errorf("transition to queued: %w", err)
-	}
-
-	// Route through ClaimBoard for low-priority tasks
-	if s.claimBoard != nil {
-		return s.claimBoard.Post(task)
+	if task.Status != reef.TaskQueued {
+		if err := task.Transition(reef.TaskQueued); err != nil {
+			return fmt.Errorf("transition to queued: %w", err)
+		}
 	}
 
 	if err := s.queue.Enqueue(task); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}
 
-	// Try immediate dispatch
 	s.TryDispatch()
 	return nil
 }
 
 // TryDispatch attempts to match and dispatch the next task from the queue.
-// It processes tasks in FIFO order until the queue is empty or no match is found.
+// It scans through queued tasks and dispatches all that can be matched,
+// skipping tasks with no available client (preventing head-of-line blocking).
 func (s *Scheduler) TryDispatch() {
+	// Collect tasks that can't be dispatched right now
+	var unmatchable []*reef.Task
+
 	for {
-		task := s.queue.Dequeue()
+		task := s.queue.Peek()
 		if task == nil {
-			return
+			break
 		}
 
-		// Exclude the most recently failed client to avoid reassigning
-		// a task back to the same node that just failed it.
 		excludeID := ""
 		for i := len(task.AttemptHistory) - 1; i >= 0; i-- {
 			if task.AttemptHistory[i].Status == "failed" && task.AttemptHistory[i].ClientID != "" {
@@ -94,43 +110,76 @@ func (s *Scheduler) TryDispatch() {
 
 		client := s.matchClient(task, excludeID)
 		if client == nil {
-			// No match available — put it back at the head and stop.
-			_ = s.queue.Enqueue(task) // should never fail since we just dequeued
-			if s.onRequeue != nil {
-				s.onRequeue(task)
-			}
-			return
+			// Can't match this task right now — remove from queue and hold aside
+			_ = s.queue.Dequeue()
+			unmatchable = append(unmatchable, task)
+			continue
 		}
 
-		// Attempt dispatch
+		_ = s.queue.Dequeue()
+
 		if err := s.dispatch(task, client); err != nil {
-			// Dispatch failed — put back and try next
+			// Dispatch failed — re-enqueue this task and stop
 			_ = s.queue.Enqueue(task)
-			return
+			break
 		}
+	}
+
+	// Put unmatchable tasks back into the queue (preserving order)
+	for _, t := range unmatchable {
+		_ = s.queue.Enqueue(t)
 	}
 }
 
-// matchClient finds the best-fit client for a task, optionally excluding a client ID.
-// Algorithm: role match → skill coverage → capacity → lowest current load.
+// matchClient finds the best-fit client for a task.
 func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientInfo {
 	candidates := s.registry.List()
-	var best *reef.ClientInfo
+	eligible := make([]*reef.ClientInfo, 0, len(candidates))
 	for _, c := range candidates {
 		if c.ID == excludeID {
+			s.logger.Debug("matchClient: excluded client",
+				slog.String("task_id", task.ID), slog.String("client_id", c.ID))
 			continue
 		}
 		if !c.IsAvailable() {
+			s.logger.Debug("matchClient: client not available",
+				slog.String("task_id", task.ID), slog.String("client_id", c.ID),
+				slog.String("state", string(c.State)),
+				slog.Int("load", c.CurrentLoad), slog.Int("capacity", c.Capacity))
 			continue
 		}
 		if !c.Matches(task.RequiredRole, task.RequiredSkills) {
+			s.logger.Warn("matchClient: role/skill mismatch",
+				slog.String("task_id", task.ID),
+				slog.String("client_id", c.ID),
+				slog.String("client_role", c.Role),
+				slog.Any("client_skills", c.Skills),
+				slog.String("required_role", task.RequiredRole),
+				slog.Any("required_skills", task.RequiredSkills))
 			continue
 		}
-		if best == nil || c.CurrentLoad < best.CurrentLoad {
-			best = c
-		}
+		eligible = append(eligible, c)
 	}
-	return best
+
+	if len(eligible) == 0 {
+		s.logger.Info("matchClient: no eligible clients",
+			slog.String("task_id", task.ID),
+			slog.Int("total_candidates", len(candidates)),
+			slog.String("required_role", task.RequiredRole),
+			slog.Any("required_skills", task.RequiredSkills))
+		return nil
+	}
+
+	strategy := s.matchStrategy
+	if strategy == nil {
+		strategy = &LeastLoadStrategy{}
+	}
+	selected := strategy.Select(eligible)
+	s.logger.Info("matchClient: selected client",
+		slog.String("task_id", task.ID),
+		slog.String("client_id", selected.ID),
+		slog.Int("eligible_count", len(eligible)))
+	return selected
 }
 
 // dispatch assigns a task to a client and updates state.
@@ -146,8 +195,7 @@ func (s *Scheduler) dispatch(task *reef.Task, client *reef.ClientInfo) error {
 	s.registry.IncrementLoad(client.ID)
 
 	if s.onDispatch != nil {
-		if err := s.onDispatch(task.ID, client.ID); err != nil {
-			// Rollback
+		if err := s.onDispatch(task, client.ID); err != nil {
 			s.registry.DecrementLoad(client.ID)
 			task.AssignedClient = ""
 			_ = task.Transition(reef.TaskQueued)
@@ -158,6 +206,9 @@ func (s *Scheduler) dispatch(task *reef.Task, client *reef.ClientInfo) error {
 }
 
 // HandleTaskCompleted processes a task completion report from a client.
+// If the task was already marked as Failed due to timeout but the client
+// actually completed it, the result is accepted and the task is restored
+// to Completed status (late completion recovery).
 func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -166,20 +217,67 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 	if !ok {
 		return fmt.Errorf("task %s not found", taskID)
 	}
-	if task.Status != reef.TaskRunning {
-		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+
+	// Normal path: task is still Running
+	if task.Status == reef.TaskRunning {
+		task.Result = result
+		if err := task.Transition(reef.TaskCompleted); err != nil {
+			return err
+		}
+		s.registry.DecrementLoad(task.AssignedClient)
+		task.AssignedClient = ""
+
+		if s.onTaskStateChanged != nil {
+			s.onTaskStateChanged(task)
+		}
+		if s.resultCallback != nil {
+			s.resultCallback(task, result, nil)
+		}
+		go s.TryDispatch()
+		return nil
 	}
 
-	task.Result = result
-	if err := task.Transition(reef.TaskCompleted); err != nil {
-		return err
-	}
-	s.registry.DecrementLoad(task.AssignedClient)
-	task.AssignedClient = ""
+	// Late completion recovery: task was timed out / paused but client finished
+	if task.Status == reef.TaskFailed || task.Status == reef.TaskPaused {
+		s.logger.Info("late completion: recovering task from terminal state",
+			slog.String("task_id", taskID),
+			slog.String("was_status", string(task.Status)))
 
-	// Trigger re-schedule in case queued tasks can now be dispatched
-	go s.TryDispatch()
-	return nil
+		// Overwrite the timeout/failure result with the actual result
+		task.Result = result
+		task.Error = nil // clear timeout error — task actually succeeded
+
+		// Force transition: Failed/Paused → Queued → Completed
+		// We can't go directly Failed → Completed, so we reset through Queued
+		task.Status = reef.TaskQueued
+		if err := task.Transition(reef.TaskCompleted); err != nil {
+			// If that still fails, force-set the status
+			s.logger.Warn("late completion: transition failed, force-setting status",
+				slog.String("task_id", taskID),
+				slog.String("error", err.Error()))
+			task.Status = reef.TaskCompleted
+			now := time.Now()
+			task.CompletedAt = &now
+		}
+
+		s.registry.DecrementLoad(task.AssignedClient)
+		task.AssignedClient = ""
+
+		if s.onTaskStateChanged != nil {
+			s.onTaskStateChanged(task)
+		}
+		if s.resultCallback != nil {
+			s.resultCallback(task, result, nil)
+		}
+		return nil
+	}
+
+	// Already terminal (Completed/Cancelled) — idempotent no-op
+	if task.Status.IsTerminal() {
+		return nil
+	}
+
+	return fmt.Errorf("task %s in unexpected state %s", taskID, task.Status)
 }
 
 // HandleTaskFailed processes a task failure report from a client.
@@ -191,12 +289,15 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		s.mu.Unlock()
 		return fmt.Errorf("task %s not found", taskID)
 	}
+	if task.Status.IsTerminal() {
+		s.mu.Unlock()
+		return nil // idempotent
+	}
 	if task.Status != reef.TaskRunning {
 		s.mu.Unlock()
 		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
 	}
 
-	// Record the failed attempt with the client ID.
 	failedClient := task.AssignedClient
 	if len(attemptHistory) == 0 {
 		attemptHistory = []reef.AttemptRecord{{
@@ -218,7 +319,6 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 	task.AttemptHistory = append(task.AttemptHistory, attemptHistory...)
 	s.registry.DecrementLoad(failedClient)
 
-	// Transition to Failed first, then apply escalation decision.
 	_ = task.Transition(reef.TaskFailed)
 
 	decision := s.escalate(task)
@@ -230,10 +330,36 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		_ = task.Transition(reef.TaskQueued)
 		needsRequeue = true
 	case EscalationTerminate:
-		// Already in Failed state — no further transition.
 	case EscalationToAdmin:
 		_ = task.Transition(reef.TaskEscalated)
-		// TODO: emit admin alert
+		alert := notify.Alert{
+			Event:           "task_escalated",
+			TaskID:          task.ID,
+			Status:          string(task.Status),
+			Instruction:     task.Instruction,
+			RequiredRole:    task.RequiredRole,
+			Error:           task.Error,
+			AttemptHistory:  task.AttemptHistory,
+			EscalationCount: task.EscalationCount,
+			MaxEscalations:  s.maxEscalations,
+			Timestamp:       time.Now(),
+		}
+		if s.notifyManager != nil {
+			go s.notifyManager.NotifyAll(context.Background(), alert)
+		} else {
+			go sendWebhookAlert(s.logger, s.webhookURLs, WebhookPayload{
+				Event:           alert.Event,
+				TaskID:          alert.TaskID,
+				Status:          alert.Status,
+				Instruction:     alert.Instruction,
+				RequiredRole:    alert.RequiredRole,
+				Error:           alert.Error,
+				AttemptHistory:  alert.AttemptHistory,
+				EscalationCount: alert.EscalationCount,
+				MaxEscalations:  alert.MaxEscalations,
+				Timestamp:       alert.Timestamp.UnixMilli(),
+			})
+		}
 	}
 	s.mu.Unlock()
 
@@ -241,12 +367,83 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 		_ = s.queue.Enqueue(task)
 		go s.TryDispatch()
 	}
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	if s.resultCallback != nil {
+		s.resultCallback(task, nil, taskErr)
+	}
+
+	return nil
+}
+
+// HandleTaskTimedOut marks a running task as failed due to timeout.
+// This method is safe to call from any goroutine (e.g., TimeoutScanner).
+func (s *Scheduler) HandleTaskTimedOut(taskID string, elapsed time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status.IsTerminal() {
+		return nil // already terminal — no-op
+	}
+	if task.Status != reef.TaskRunning {
+		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+	}
+
+	task.Error = &reef.TaskError{
+		Type:    "timeout",
+		Message: "task exceeded timeout",
+		Detail:  "elapsed: " + elapsed.String(),
+	}
+	_ = task.Transition(reef.TaskFailed)
+	s.registry.DecrementLoad(task.AssignedClient)
+	task.AssignedClient = ""
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	if s.resultCallback != nil {
+		s.resultCallback(task, nil, task.Error)
+	}
+
+	go s.TryDispatch()
+	return nil
+}
+
+// HandleTaskPaused marks a running task as paused (e.g., due to client disconnect).
+// This method is safe to call from any goroutine (e.g., heartbeatScanner).
+func (s *Scheduler) HandleTaskPaused(taskID string, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status.IsTerminal() {
+		return nil
+	}
+	if task.Status != reef.TaskRunning {
+		return fmt.Errorf("task %s not in Running state (was %s)", taskID, task.Status)
+	}
+
+	_ = task.Transition(reef.TaskPaused)
+	task.PauseReason = reason
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
 	return nil
 }
 
 // HandleClientAvailable triggers re-scheduling when a client becomes available.
 func (s *Scheduler) HandleClientAvailable(clientID string) {
-	_ = clientID // may be used for logging or metrics
+	_ = clientID
 	go s.TryDispatch()
 }
 
@@ -255,6 +452,13 @@ func (s *Scheduler) GetTask(taskID string) *reef.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.tasks[taskID]
+}
+
+// RegisterTask adds a task to the scheduler's index without enqueuing it.
+func (s *Scheduler) RegisterTask(task *reef.Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tasks[task.ID] = task
 }
 
 // TasksSnapshot returns a shallow copy of all known tasks.
@@ -268,44 +472,21 @@ func (s *Scheduler) TasksSnapshot() []*reef.Task {
 	return out
 }
 
-// SetClaimBoard sets the ClaimBoard for low-priority task routing.
-// Pass nil to disable claim board routing.
-func (s *Scheduler) SetClaimBoard(cb *evserver.ClaimBoard) {
-	s.claimBoard = cb
-}
-
-// DispatchTask is a public wrapper around the internal dispatch logic.
-// It is used by the ClaimBoard to dispatch a claimed task directly to a client.
-func (s *Scheduler) DispatchTask(clientID string, task *reef.Task) error {
-	client := s.registry.Get(clientID)
-	if client == nil {
-		return fmt.Errorf("client %s not found", clientID)
-	}
-	return s.dispatch(task, client)
-}
-
-// ---------------------------------------------------------------------------
-// Escalation
-// ---------------------------------------------------------------------------
-
 // EscalationDecision enumerates possible escalation outcomes.
 type EscalationDecision string
 
 const (
-	EscalationReassign EscalationDecision = "reassign"
+	EscalationReassign  EscalationDecision = "reassign"
 	EscalationTerminate EscalationDecision = "terminate"
 	EscalationToAdmin   EscalationDecision = "to_admin"
 )
 
-// escalate decides what to do with a failed task.
 func (s *Scheduler) escalate(task *reef.Task) EscalationDecision {
 	if task.EscalationCount >= s.maxEscalations {
 		return EscalationToAdmin
 	}
-	// Check if another client is available (exclude the one that just failed)
 	if s.matchClient(task, task.AssignedClient) != nil {
 		return EscalationReassign
 	}
-	// No other client available — terminate
 	return EscalationTerminate
 }

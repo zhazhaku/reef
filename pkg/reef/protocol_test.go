@@ -158,6 +158,47 @@ func TestValidateProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestMsgErrorRoundTrip(t *testing.T) {
+	msg, err := NewMessage(MsgError, "t-1", ErrorPayload{
+		Code:         "ERR_UNKNOWN_TYPE",
+		Message:      "unknown message type: bogus",
+		OriginalType: "bogus",
+	})
+	if err != nil {
+		t.Fatalf("NewMessage: %v", err)
+	}
+	if msg.MsgType != MsgError {
+		t.Errorf("MsgType = %s, want %s", msg.MsgType, MsgError)
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.MsgType != MsgError {
+		t.Errorf("decoded MsgType = %s", decoded.MsgType)
+	}
+
+	var payload ErrorPayload
+	if err := decoded.DecodePayload(&payload); err != nil {
+		t.Fatalf("DecodePayload: %v", err)
+	}
+	if payload.Code != "ERR_UNKNOWN_TYPE" {
+		t.Errorf("Code = %s", payload.Code)
+	}
+	if payload.Message == "" {
+		t.Error("Message should not be empty")
+	}
+	if payload.OriginalType != "bogus" {
+		t.Errorf("OriginalType = %s", payload.OriginalType)
+	}
+}
+
 func TestRaftLeaderChangeMessage(t *testing.T) {
 	// First election: old addresses are empty
 	msg := NewRaftLeaderChangeMessage("ws://n1:8080", "node-1", "", "", 1)

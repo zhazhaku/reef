@@ -165,6 +165,14 @@ type Task struct {
 }
 
 // NewTask creates a new task with default values.
+// TaskOptions is an optional configuration object for task creation.
+type TaskOptions struct {
+	MaxRetries int            `json:"max_retries,omitempty"`
+	TimeoutMs  int64          `json:"timeout_ms,omitempty"`
+	ModelHint  string         `json:"model_hint,omitempty"`
+	ReplyTo    *ReplyToContext `json:"reply_to,omitempty"`
+}
+
 func NewTask(id, instruction, requiredRole string, requiredSkills []string) *Task {
 	return &Task{
 		ID:             id,
@@ -252,4 +260,18 @@ func (tc *TaskContext) IsPaused() <-chan struct{} {
 // IsResumed returns a channel that receives when resume is requested.
 func (tc *TaskContext) IsResumed() <-chan struct{} {
 	return tc.ResumeCh
+}
+
+// TaskSnapshot is a read-only snapshot of a task's current state for API queries.
+type TaskSnapshot struct {
+	TaskID          string          `json:"task_id"`
+	Status          string          `json:"status"`
+	Instruction     string          `json:"instruction"`
+	AssignedClient  string          `json:"assigned_client,omitempty"`
+	Result          *TaskResult     `json:"result,omitempty"`
+	Error           *TaskError      `json:"error,omitempty"`
+	AttemptHistory  []AttemptRecord `json:"attempt_history"`
+	EscalationCount int             `json:"escalation_count"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
