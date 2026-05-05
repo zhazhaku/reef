@@ -273,6 +273,10 @@ func (s *WebSocketServer) handleMessage(c *Conn, msg reef.Message) {
 		_ = msg.DecodePayload(&payload)
 		task := s.scheduler.GetTask(payload.TaskID)
 		if task != nil {
+			// Update progress percentage if provided
+			if payload.ProgressPercent > 0 {
+				s.scheduler.HandleTaskProgress(payload.TaskID, payload.ProgressPercent)
+			}
 			// Update status based on progress type
 			switch payload.Status {
 			case "started":

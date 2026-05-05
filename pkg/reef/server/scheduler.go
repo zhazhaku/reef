@@ -49,7 +49,7 @@ func NewScheduler(registry *Registry, queue Queue, opts SchedulerOptions) *Sched
 		opts.MaxEscalations = 2
 	}
 	if opts.Logger == nil {
-		opts.Logger = slog.New(slog.NewTextHandler(nil, nil))
+		opts.Logger = nil // remain nil-safe; slog.Default() panics on some runtimes
 	}
 	return &Scheduler{
 		registry:           registry,
@@ -137,36 +137,44 @@ func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientI
 	eligible := make([]*reef.ClientInfo, 0, len(candidates))
 	for _, c := range candidates {
 		if c.ID == excludeID {
-			s.logger.Debug("matchClient: excluded client",
-				slog.String("task_id", task.ID), slog.String("client_id", c.ID))
+			if s.logger != nil {
+				s.logger.Debug("matchClient: excluded client",
+					slog.String("task_id", task.ID), slog.String("client_id", c.ID))
+			}
 			continue
 		}
 		if !c.IsAvailable() {
-			s.logger.Debug("matchClient: client not available",
-				slog.String("task_id", task.ID), slog.String("client_id", c.ID),
-				slog.String("state", string(c.State)),
-				slog.Int("load", c.CurrentLoad), slog.Int("capacity", c.Capacity))
+			if s.logger != nil {
+				s.logger.Debug("matchClient: client not available",
+					slog.String("task_id", task.ID), slog.String("client_id", c.ID),
+					slog.String("state", string(c.State)),
+					slog.Int("load", c.CurrentLoad), slog.Int("capacity", c.Capacity))
+			}
 			continue
 		}
 		if !c.Matches(task.RequiredRole, task.RequiredSkills) {
-			s.logger.Warn("matchClient: role/skill mismatch",
-				slog.String("task_id", task.ID),
-				slog.String("client_id", c.ID),
-				slog.String("client_role", c.Role),
-				slog.Any("client_skills", c.Skills),
-				slog.String("required_role", task.RequiredRole),
-				slog.Any("required_skills", task.RequiredSkills))
+			if s.logger != nil {
+				s.logger.Warn("matchClient: role/skill mismatch",
+					slog.String("task_id", task.ID),
+					slog.String("client_id", c.ID),
+					slog.String("client_role", c.Role),
+					slog.Any("client_skills", c.Skills),
+					slog.String("required_role", task.RequiredRole),
+					slog.Any("required_skills", task.RequiredSkills))
+			}
 			continue
 		}
 		eligible = append(eligible, c)
 	}
 
 	if len(eligible) == 0 {
-		s.logger.Info("matchClient: no eligible clients",
-			slog.String("task_id", task.ID),
-			slog.Int("total_candidates", len(candidates)),
-			slog.String("required_role", task.RequiredRole),
-			slog.Any("required_skills", task.RequiredSkills))
+		if s.logger != nil {
+			s.logger.Info("matchClient: no eligible clients",
+				slog.String("task_id", task.ID),
+				slog.Int("total_candidates", len(candidates)),
+				slog.String("required_role", task.RequiredRole),
+				slog.Any("required_skills", task.RequiredSkills))
+		}
 		return nil
 	}
 
@@ -175,10 +183,12 @@ func (s *Scheduler) matchClient(task *reef.Task, excludeID string) *reef.ClientI
 		strategy = &LeastLoadStrategy{}
 	}
 	selected := strategy.Select(eligible)
-	s.logger.Info("matchClient: selected client",
-		slog.String("task_id", task.ID),
-		slog.String("client_id", selected.ID),
-		slog.Int("eligible_count", len(eligible)))
+	if s.logger != nil {
+		s.logger.Info("matchClient: selected client",
+			slog.String("task_id", task.ID),
+			slog.String("client_id", selected.ID),
+			slog.Int("eligible_count", len(eligible)))
+	}
 	return selected
 }
 
@@ -239,9 +249,11 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 
 	// Late completion recovery: task was timed out / paused but client finished
 	if task.Status == reef.TaskFailed || task.Status == reef.TaskPaused {
-		s.logger.Info("late completion: recovering task from terminal state",
-			slog.String("task_id", taskID),
-			slog.String("was_status", string(task.Status)))
+		if s.logger != nil {
+			s.logger.Info("late completion: recovering task from terminal state",
+				slog.String("task_id", taskID),
+				slog.String("was_status", string(task.Status)))
+		}
 
 		// Overwrite the timeout/failure result with the actual result
 		task.Result = result
@@ -252,9 +264,11 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 		task.Status = reef.TaskQueued
 		if err := task.Transition(reef.TaskCompleted); err != nil {
 			// If that still fails, force-set the status
-			s.logger.Warn("late completion: transition failed, force-setting status",
-				slog.String("task_id", taskID),
-				slog.String("error", err.Error()))
+			if s.logger != nil {
+				s.logger.Warn("late completion: transition failed, force-setting status",
+					slog.String("task_id", taskID),
+					slog.String("error", err.Error()))
+			}
 			task.Status = reef.TaskCompleted
 			now := time.Now()
 			task.CompletedAt = &now
@@ -489,4 +503,18 @@ func (s *Scheduler) escalate(task *reef.Task) EscalationDecision {
 		return EscalationReassign
 	}
 	return EscalationTerminate
+}
+
+// HandleTaskProgress records a progress heartbeat from a Client.
+func (s *Scheduler) HandleTaskProgress(taskID string, percent int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return
+	}
+	task.ProgressPercent = percent
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
 }

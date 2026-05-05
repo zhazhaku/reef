@@ -42,7 +42,7 @@ func (s TaskStatus) IsBlocked() bool {
 // to the target status is valid according to the state machine rules.
 func (s TaskStatus) CanTransitionTo(target TaskStatus) bool {
 	valid := map[TaskStatus][]TaskStatus{
-		TaskCreated:     {TaskQueued, TaskAssigned, TaskFailed, TaskBlocked, TaskAggregating},
+		TaskCreated:     {TaskQueued, TaskAssigned, TaskFailed, TaskBlocked, TaskAggregating, TaskCancelled},
 		TaskQueued:      {TaskAssigned, TaskFailed, TaskAggregating},
 		TaskAssigned:    {TaskRunning, TaskFailed, TaskQueued},
 		TaskRunning:     {TaskCompleted, TaskFailed, TaskPaused, TaskCancelled, TaskQueued},
@@ -152,6 +152,7 @@ type Task struct {
 	CompletedAt     *time.Time
 	EscalationCount int
 	PauseReason     string // e.g. "user_request", "disconnect"
+	ProgressPercent int    // 0-100, updated by task_progress messages
 
 	// BlockReport captures diagnostic info when a task is blocked.
 	// It is set by the caller after Transition(TaskBlocked).
