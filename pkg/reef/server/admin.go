@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ func NewAdminServer(registry *Registry, scheduler *Scheduler, token string, logg
 func (a *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/status", a.authMiddleware(a.handleStatus))
 	mux.HandleFunc("/admin/tasks", a.authMiddleware(a.handleTasks))
+	mux.HandleFunc("/admin/tasks/", a.authMiddleware(a.handleTaskControl))
 	mux.HandleFunc("/admin/evolution/status", a.authMiddleware(a.handleEvolutionStatus))
 	mux.HandleFunc("/admin/skills/approve", a.authMiddleware(a.handleSkillApprove))
 	mux.HandleFunc("/admin/skills/reject", a.authMiddleware(a.handleSkillReject))
@@ -284,6 +286,74 @@ func (a *AdminServer) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"task_id": task.ID,
 		"status":  string(task.Status),
+	})
+}
+
+// TaskControlRequest is the payload for POST /admin/tasks/{task_id}/control.
+type TaskControlRequest struct {
+	Action string `json:"action"` // "cancel", "pause", "resume"
+}
+
+// handleTaskControl handles POST /admin/tasks/{task_id}/control.
+func (a *AdminServer) handleTaskControl(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract task ID from /admin/tasks/{task_id}/control
+	// Path: "/admin/tasks/" + taskID
+	path := r.URL.Path
+	if len(path) <= len("/admin/tasks/") {
+		http.Error(w, "task_id is required", http.StatusBadRequest)
+		return
+	}
+	taskID := path[len("/admin/tasks/"):]
+	if taskID == "" || taskID == "control" {
+		http.Error(w, "task_id is required", http.StatusBadRequest)
+		return
+	}
+	// Strip trailing segments if any (e.g., /admin/tasks/t-1/control → t-1)
+	if idx := strings.Index(taskID, "/"); idx >= 0 {
+		taskID = taskID[:idx]
+	}
+
+	var req TaskControlRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var err error
+	switch req.Action {
+	case "cancel":
+		err = a.scheduler.HandleTaskCancelled(taskID)
+	case "pause":
+		err = a.scheduler.HandleTaskPaused(taskID, "admin_request")
+	case "resume":
+		err = a.scheduler.HandleTaskResumed(taskID)
+	default:
+		http.Error(w, "unknown action: "+req.Action+" (use cancel/pause/resume)", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		a.logger.Warn("task control failed",
+			slog.String("task_id", taskID),
+			slog.String("action", req.Action),
+			slog.String("error", err.Error()))
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	a.logger.Info("task controlled via admin",
+		slog.String("task_id", taskID),
+		slog.String("action", req.Action))
+
+	writeJSON(w, map[string]string{
+		"task_id": taskID,
+		"action":  req.Action,
+		"status":  "ok",
 	})
 }
 

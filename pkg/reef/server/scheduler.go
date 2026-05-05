@@ -518,3 +518,41 @@ func (s *Scheduler) HandleTaskProgress(taskID string, percent int) {
 		s.onTaskStateChanged(task)
 	}
 }
+
+// HandleTaskCancelled cancels a task that has not yet completed.
+func (s *Scheduler) HandleTaskCancelled(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if err := task.Transition(reef.TaskCancelled); err != nil {
+		return err
+	}
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	return nil
+}
+
+// HandleTaskResumed resumes a paused task back to queued for re-dispatch.
+func (s *Scheduler) HandleTaskResumed(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status != reef.TaskPaused {
+		return fmt.Errorf("task %s is not paused (was %s)", taskID, task.Status)
+	}
+	_ = task.Transition(reef.TaskQueued)
+	task.PauseReason = ""
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+	s.queue.Enqueue(task)
+	go s.TryDispatch()
+	return nil
+}
