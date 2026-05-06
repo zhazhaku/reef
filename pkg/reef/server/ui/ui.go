@@ -220,6 +220,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Wave 1.4: Task decomposition routes
 	mux.HandleFunc("/api/v2/tasks/", h.routeV2TaskSub)
+
+	// Wave 1.5 + 1.6: Evolution, Activity, Config, Hermes, Logs
+	h.RegisterV2Routes(mux)
 }
 
 // V2StatusResponse is the JSON shape for /api/v2/status.
