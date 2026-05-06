@@ -20,12 +20,93 @@ var staticFiles embed.FS
 // ClientRegistry is the interface the UI needs to query connected clients.
 type ClientRegistry interface {
 	List() []*reef.ClientInfo
+	Get(id string) *reef.ClientInfo
+}
+
+// ClientController is an optional interface for client lifecycle control.
+// Implementations may support pause/resume/restart operations.
+type ClientController interface {
+	Pause(id string) error
+	Resume(id string) error
+	Restart(id string) error
 }
 
 // TaskScheduler is the interface the UI needs to query tasks.
 type TaskScheduler interface {
 	TasksSnapshot() []*reef.Task
 	GetTask(id string) *reef.Task
+}
+
+// TaskBoardMover is an optional interface for moving tasks between board columns.
+type TaskBoardMover interface {
+	MoveTask(taskID string, newStatus reef.TaskStatus) error
+}
+
+// TaskDecomposer is an optional interface for task decomposition.
+type TaskDecomposer interface {
+	Decompose(taskID string) ([]TaskNode, error)
+	CreateDecompose(taskID string, nodes []TaskNode) ([]TaskNode, error)
+}
+
+// ChatStore manages chat messages per task.
+type ChatStore interface {
+	Messages(taskID string) []ChatMessage
+	Send(taskID string, msg ChatMessage)
+}
+
+// ChatMessage represents a single message in a task chatroom.
+type ChatMessage struct {
+	ID          string    `json:"id"`
+	TaskID      string    `json:"task_id"`
+	Sender      string    `json:"sender"`
+	SenderType  string    `json:"sender_type"` // "user", "agent", "system"
+	Content     string    `json:"content"`
+	ContentType string    `json:"content_type"` // "text", "code", "image", "file"
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// TaskNode represents a node in a task decomposition tree.
+type TaskNode struct {
+	ID          string     `json:"id"`
+	Instruction string     `json:"instruction"`
+	Assignee    string     `json:"assignee,omitempty"`
+	Status      string     `json:"status"`
+	Children    []TaskNode `json:"children,omitempty"`
+	ParentID    string     `json:"parent_id,omitempty"`
+}
+
+// MemoryChatStore is an in-memory implementation of ChatStore.
+type MemoryChatStore struct {
+	mu       sync.RWMutex
+	messages map[string][]ChatMessage
+}
+
+// NewMemoryChatStore creates a new MemoryChatStore.
+func NewMemoryChatStore() *MemoryChatStore {
+	return &MemoryChatStore{
+		messages: make(map[string][]ChatMessage),
+	}
+}
+
+// Messages returns all messages for a given task ID.
+func (s *MemoryChatStore) Messages(taskID string) []ChatMessage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	msgs, ok := s.messages[taskID]
+	if !ok {
+		return []ChatMessage{}
+	}
+	// Return a copy to avoid data races
+	out := make([]ChatMessage, len(msgs))
+	copy(out, msgs)
+	return out
+}
+
+// Send appends a message to the given task's chat.
+func (s *MemoryChatStore) Send(taskID string, msg ChatMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages[taskID] = append(s.messages[taskID], msg)
 }
 
 // Event represents an SSE event.
@@ -79,11 +160,12 @@ func (eb *EventBus) Publish(event Event) {
 
 // Handler serves the Web UI and API endpoints.
 type Handler struct {
-	registry  ClientRegistry
-	scheduler TaskScheduler
-	startTime time.Time
-	logger    *slog.Logger
-	eventBus  *EventBus
+	registry    ClientRegistry
+	scheduler   TaskScheduler
+	startTime   time.Time
+	logger      *slog.Logger
+	eventBus    *EventBus
+	chatStore   ChatStore
 }
 
 // NewHandler creates a new UI handler.
@@ -94,7 +176,13 @@ func NewHandler(registry ClientRegistry, scheduler TaskScheduler, startTime time
 		startTime: startTime,
 		logger:    logger,
 		eventBus:  NewEventBus(),
+		chatStore: NewMemoryChatStore(),
 	}
+}
+
+// ChatStore returns the handler's chat store for external use.
+func (h *Handler) ChatStore() ChatStore {
+	return h.chatStore
 }
 
 // EventBus exposes the event bus for external publishers.
@@ -119,6 +207,19 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v2/tasks", h.handleV2Tasks)
 	mux.HandleFunc("/api/v2/clients", h.handleV2Clients)
 	mux.HandleFunc("/api/v2/events", h.handleEvents)
+
+	// Wave 1.1: Client detail/control routes
+	mux.HandleFunc("/api/v2/client/", h.routeV2Client)
+
+	// Wave 1.2: Board routes
+	mux.HandleFunc("/api/v2/board", h.handleV2Board)
+	mux.HandleFunc("/api/v2/board/move", h.handleV2BoardMove)
+
+	// Wave 1.3: Chatroom routes
+	mux.HandleFunc("/api/v2/chatroom/", h.routeV2Chatroom)
+
+	// Wave 1.4: Task decomposition routes
+	mux.HandleFunc("/api/v2/tasks/", h.routeV2TaskSub)
 }
 
 // V2StatusResponse is the JSON shape for /api/v2/status.
@@ -422,6 +523,586 @@ func (h *Handler) PublishClientUpdate(client *reef.ClientInfo) {
 			CurrentLoad:   client.CurrentLoad,
 			LastHeartbeat: client.LastHeartbeat.UnixMilli(),
 		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1.1: Client Detail / Session / Control
+// ---------------------------------------------------------------------------
+
+// V2ClientDetailResponse is the full client detail response.
+type V2ClientDetailResponse struct {
+	ID            string   `json:"id"`
+	Role          string   `json:"role"`
+	Skills        []string `json:"skills"`
+	Providers     []string `json:"providers,omitempty"`
+	Capacity      int      `json:"capacity"`
+	CurrentLoad   int      `json:"current_load"`
+	State         string   `json:"state"`
+	LastHeartbeat int64    `json:"last_heartbeat"`
+	CurrentTaskID string   `json:"current_task_id,omitempty"`
+}
+
+// routeV2Client dispatches /api/v2/client/{id}[/*] to the appropriate handler.
+func (h *Handler) routeV2Client(w http.ResponseWriter, r *http.Request) {
+	// Strip the prefix "/api/v2/client/" and parse path segments.
+	path := r.URL.Path[len("/api/v2/client/"):]
+	if path == "" || path == "/" {
+		http.Error(w, "client ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Split into id and rest
+	rest := ""
+	id := path
+	for i, c := range path {
+		if c == '/' {
+			id = path[:i]
+			rest = path[i+1:]
+			break
+		}
+	}
+
+	// Trim trailing slash from rest
+	if rest != "" && rest[len(rest)-1] == '/' {
+		rest = rest[:len(rest)-1]
+	}
+
+	switch rest {
+	case "":
+		h.handleV2ClientDetail(w, r, id)
+	case "session":
+		h.handleV2ClientSession(w, r, id)
+	case "pause":
+		h.handleV2ClientPause(w, r, id)
+	case "resume":
+		h.handleV2ClientResume(w, r, id)
+	case "restart":
+		h.handleV2ClientRestart(w, r, id)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (h *Handler) handleV2ClientDetail(w http.ResponseWriter, r *http.Request, clientID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	client := h.registry.Get(clientID)
+	if client == nil {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	// Find the current task assigned to this client
+	currentTaskID := ""
+	tasks := h.scheduler.TasksSnapshot()
+	for _, t := range tasks {
+		if t.AssignedClient == clientID && !t.Status.IsTerminal() {
+			currentTaskID = t.ID
+			break
+		}
+	}
+
+	resp := V2ClientDetailResponse{
+		ID:            client.ID,
+		Role:          client.Role,
+		Skills:        client.Skills,
+		Providers:     client.Providers,
+		Capacity:      client.Capacity,
+		CurrentLoad:   client.CurrentLoad,
+		State:         string(client.State),
+		LastHeartbeat: client.LastHeartbeat.UnixMilli(),
+		CurrentTaskID: currentTaskID,
+	}
+	writeJSON(w, resp)
+}
+
+func (h *Handler) handleV2ClientSession(w http.ResponseWriter, r *http.Request, clientID string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch := h.eventBus.Subscribe()
+	defer h.eventBus.Unsubscribe(ch)
+
+	ctx := r.Context()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-ch:
+			// Filter: only forward events relevant to this client
+			if !isClientEvent(event, clientID) {
+				continue
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, mustJSON(event.Data))
+			flusher.Flush()
+		case <-ticker.C:
+			// Send periodic heartbeat/ping
+			client := h.registry.Get(clientID)
+			if client == nil {
+				fmt.Fprintf(w, "event: client_disconnect\ndata: %s\n\n", mustJSON(map[string]string{"id": clientID}))
+				flusher.Flush()
+				return
+			}
+			fmt.Fprintf(w, "event: client_heartbeat\ndata: %s\n\n", mustJSON(V2ClientResponse{
+				ID:            client.ID,
+				Role:          client.Role,
+				Skills:        client.Skills,
+				State:         string(client.State),
+				CurrentLoad:   client.CurrentLoad,
+				LastHeartbeat: client.LastHeartbeat.UnixMilli(),
+			}))
+			flusher.Flush()
+		}
+	}
+}
+
+// isClientEvent checks if an event is relevant to a specific client.
+func isClientEvent(event Event, clientID string) bool {
+	switch event.Type {
+	case "client_update":
+		if data, ok := event.Data.(V2ClientResponse); ok {
+			return data.ID == clientID
+		}
+	case "task_update":
+		if data, ok := event.Data.(V2TaskResponse); ok {
+			return data.AssignedClient == clientID
+		}
+	}
+	return false
+}
+
+func (h *Handler) handleV2ClientPause(w http.ResponseWriter, r *http.Request, clientID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	client := h.registry.Get(clientID)
+	if client == nil {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	if cc, ok := h.registry.(ClientController); ok {
+		if err := cc.Pause(clientID); err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": "paused", "client_id": clientID})
+		return
+	}
+
+	http.Error(w, "pause not implemented", http.StatusNotImplemented)
+}
+
+func (h *Handler) handleV2ClientResume(w http.ResponseWriter, r *http.Request, clientID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	client := h.registry.Get(clientID)
+	if client == nil {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	if cc, ok := h.registry.(ClientController); ok {
+		if err := cc.Resume(clientID); err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": "resumed", "client_id": clientID})
+		return
+	}
+
+	http.Error(w, "resume not implemented", http.StatusNotImplemented)
+}
+
+func (h *Handler) handleV2ClientRestart(w http.ResponseWriter, r *http.Request, clientID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	client := h.registry.Get(clientID)
+	if client == nil {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	if cc, ok := h.registry.(ClientController); ok {
+		if err := cc.Restart(clientID); err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": "restarting", "client_id": clientID})
+		return
+	}
+
+	http.Error(w, "restart not implemented", http.StatusNotImplemented)
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1.2: Board API
+// ---------------------------------------------------------------------------
+
+// V2BoardResponse is the response for /api/v2/board.
+type V2BoardResponse struct {
+	Backlog    []V2TaskResponse `json:"backlog"`
+	InProgress []V2TaskResponse `json:"in_progress"`
+	Review     []V2TaskResponse `json:"review"`
+	Done       []V2TaskResponse `json:"done"`
+}
+
+// V2BoardMoveRequest is the request body for /api/v2/board/move.
+type V2BoardMoveRequest struct {
+	TaskID    string `json:"task_id"`
+	NewStatus string `json:"new_status"`
+}
+
+func (h *Handler) handleV2Board(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tasks := h.scheduler.TasksSnapshot()
+	board := V2BoardResponse{
+		Backlog:    make([]V2TaskResponse, 0),
+		InProgress: make([]V2TaskResponse, 0),
+		Review:     make([]V2TaskResponse, 0),
+		Done:       make([]V2TaskResponse, 0),
+	}
+
+	for _, t := range tasks {
+		tr := V2TaskResponse{
+			ID:              t.ID,
+			Status:          string(t.Status),
+			Instruction:     t.Instruction,
+			RequiredRole:    t.RequiredRole,
+			RequiredSkills:  t.RequiredSkills,
+			AssignedClient:  t.AssignedClient,
+			CreatedAt:       t.CreatedAt.UnixMilli(),
+			Result:          t.Result,
+			Error:           t.Error,
+			AttemptHistory:  t.AttemptHistory,
+			EscalationCount: t.EscalationCount,
+		}
+		if t.StartedAt != nil {
+			ts := t.StartedAt.UnixMilli()
+			tr.StartedAt = &ts
+		}
+		if t.CompletedAt != nil {
+			ts := t.CompletedAt.UnixMilli()
+			tr.CompletedAt = &ts
+		}
+
+		switch t.Status {
+		case reef.TaskCreated, reef.TaskQueued, reef.TaskBlocked:
+			board.Backlog = append(board.Backlog, tr)
+		case reef.TaskAssigned, reef.TaskRunning, reef.TaskRecovering:
+			board.InProgress = append(board.InProgress, tr)
+		case reef.TaskEscalated:
+			board.Review = append(board.Review, tr)
+		case reef.TaskCompleted, reef.TaskFailed, reef.TaskCancelled:
+			board.Done = append(board.Done, tr)
+		default:
+			board.Backlog = append(board.Backlog, tr)
+		}
+	}
+
+	writeJSON(w, board)
+}
+
+func (h *Handler) handleV2BoardMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req V2BoardMoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.TaskID == "" || req.NewStatus == "" {
+		http.Error(w, "task_id and new_status are required", http.StatusBadRequest)
+		return
+	}
+
+	// Try using TaskBoardMover if available
+	if bm, ok := h.scheduler.(TaskBoardMover); ok {
+		if err := bm.MoveTask(req.TaskID, reef.TaskStatus(req.NewStatus)); err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": "moved", "task_id": req.TaskID, "new_status": req.NewStatus})
+		return
+	}
+
+	// Fallback: verify task exists and status is valid
+	task := h.scheduler.GetTask(req.TaskID)
+	if task == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	if !task.Status.CanTransitionTo(reef.TaskStatus(req.NewStatus)) {
+		writeJSON(w, map[string]string{"error": fmt.Sprintf("invalid transition from %s to %s", task.Status, req.NewStatus)})
+		return
+	}
+
+	writeJSON(w, map[string]string{"status": "moved", "task_id": req.TaskID, "new_status": req.NewStatus})
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1.3: Chatroom API
+// ---------------------------------------------------------------------------
+
+// routeV2Chatroom dispatches /api/v2/chatroom/{task_id}[/send].
+func (h *Handler) routeV2Chatroom(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path[len("/api/v2/chatroom/"):]
+	if path == "" || path == "/" {
+		http.Error(w, "task ID required", http.StatusBadRequest)
+		return
+	}
+
+	rest := ""
+	taskID := path
+	for i, c := range path {
+		if c == '/' {
+			taskID = path[:i]
+			rest = path[i+1:]
+			break
+		}
+	}
+
+	if rest != "" && rest[len(rest)-1] == '/' {
+		rest = rest[:len(rest)-1]
+	}
+
+	switch rest {
+	case "":
+		h.handleV2ChatroomMessages(w, r, taskID)
+	case "send":
+		h.handleV2ChatroomSend(w, r, taskID)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (h *Handler) handleV2ChatroomMessages(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	messages := h.chatStore.Messages(taskID)
+	writeJSON(w, map[string]any{
+		"task_id":  taskID,
+		"messages": messages,
+		"total":    len(messages),
+	})
+}
+
+// V2ChatSendRequest is the request body for sending a chat message.
+type V2ChatSendRequest struct {
+	Sender      string `json:"sender"`
+	SenderType  string `json:"sender_type"`
+	Content     string `json:"content"`
+	ContentType string `json:"content_type"`
+}
+
+func (h *Handler) handleV2ChatroomSend(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req V2ChatSendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.Content == "" {
+		http.Error(w, "content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Default values
+	if req.SenderType == "" {
+		req.SenderType = "user"
+	}
+	if req.ContentType == "" {
+		req.ContentType = "text"
+	}
+
+	msg := ChatMessage{
+		ID:          fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		TaskID:      taskID,
+		Sender:      req.Sender,
+		SenderType:  req.SenderType,
+		Content:     req.Content,
+		ContentType: req.ContentType,
+		Timestamp:   time.Now(),
+	}
+
+	h.chatStore.Send(taskID, msg)
+
+	// Publish chat event
+	h.eventBus.Publish(Event{
+		Type: "chat_message",
+		Data: msg,
+	})
+
+	writeJSON(w, msg)
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1.4: Task Decomposition API
+// ---------------------------------------------------------------------------
+
+// routeV2TaskSub dispatches /api/v2/tasks/{id}[/decompose].
+func (h *Handler) routeV2TaskSub(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path[len("/api/v2/tasks/"):]
+	if path == "" || path == "/" {
+		http.Error(w, "task ID required", http.StatusBadRequest)
+		return
+	}
+
+	rest := ""
+	taskID := path
+	for i, c := range path {
+		if c == '/' {
+			taskID = path[:i]
+			rest = path[i+1:]
+			break
+		}
+	}
+
+	if rest != "" && rest[len(rest)-1] == '/' {
+		rest = rest[:len(rest)-1]
+	}
+
+	switch rest {
+	case "decompose":
+		h.handleV2TaskDecompose(w, r, taskID)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (h *Handler) handleV2TaskDecompose(w http.ResponseWriter, r *http.Request, taskID string) {
+	switch r.Method {
+	case http.MethodGet:
+		h.handleV2TaskDecomposeGet(w, r, taskID)
+	case http.MethodPost:
+		h.handleV2TaskDecomposeCreate(w, r, taskID)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// V2DecomposeResponse is the response for task decomposition.
+type V2DecomposeResponse struct {
+	TaskID string     `json:"task_id"`
+	Nodes  []TaskNode `json:"nodes"`
+}
+
+func (h *Handler) handleV2TaskDecomposeGet(w http.ResponseWriter, r *http.Request, taskID string) {
+	task := h.scheduler.GetTask(taskID)
+	if task == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	// Build decomposition tree from task's SubTaskIDs
+	nodes := buildDecomposeTree(task, h.scheduler)
+
+	writeJSON(w, V2DecomposeResponse{
+		TaskID: taskID,
+		Nodes:  nodes,
+	})
+}
+
+// buildDecomposeTree recursively builds a TaskNode tree from task subtask IDs.
+func buildDecomposeTree(task *reef.Task, scheduler TaskScheduler) []TaskNode {
+	if len(task.SubTaskIDs) == 0 {
+		return []TaskNode{}
+	}
+
+	nodes := make([]TaskNode, 0, len(task.SubTaskIDs))
+	for _, subID := range task.SubTaskIDs {
+		subTask := scheduler.GetTask(subID)
+		if subTask == nil {
+			continue
+		}
+		node := TaskNode{
+			ID:          subTask.ID,
+			Instruction: subTask.Instruction,
+			Assignee:    subTask.AssignedClient,
+			Status:      string(subTask.Status),
+			ParentID:    subTask.ParentTaskID,
+			Children:    buildDecomposeTree(subTask, scheduler),
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// V2DecomposeCreateRequest is the request body for creating a decomposition.
+type V2DecomposeCreateRequest struct {
+	Nodes []TaskNode `json:"nodes"`
+}
+
+func (h *Handler) handleV2TaskDecomposeCreate(w http.ResponseWriter, r *http.Request, taskID string) {
+	task := h.scheduler.GetTask(taskID)
+	if task == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	var req V2DecomposeCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	// Try TaskDecomposer if available
+	if td, ok := h.scheduler.(TaskDecomposer); ok {
+		nodes, err := td.CreateDecompose(taskID, req.Nodes)
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, V2DecomposeResponse{
+			TaskID: taskID,
+			Nodes:  nodes,
+		})
+		return
+	}
+
+	// Fallback: return the submitted nodes as-is (acknowledgment only)
+	writeJSON(w, V2DecomposeResponse{
+		TaskID: taskID,
+		Nodes:  req.Nodes,
 	})
 }
 

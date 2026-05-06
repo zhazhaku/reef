@@ -31,6 +31,17 @@ func (m *mockRegistry) List() []*reef.ClientInfo {
 	return out
 }
 
+func (m *mockRegistry) Get(id string) *reef.ClientInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, c := range m.clients {
+		if c.ID == id {
+			return c
+		}
+	}
+	return nil
+}
+
 func (m *mockRegistry) add(c *reef.ClientInfo) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
