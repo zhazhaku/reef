@@ -166,6 +166,7 @@ type Handler struct {
 	logger      *slog.Logger
 	eventBus    *EventBus
 	chatStore   ChatStore
+	evolutionHub EvolutionHub
 }
 
 // NewHandler creates a new UI handler.
@@ -512,6 +513,14 @@ func (h *Handler) PublishTaskUpdate(task *reef.Task) {
 			EscalationCount: task.EscalationCount,
 		},
 	})
+	GetActivityStore().Add(ActivityEvent{
+		ID:          "act_" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:        "task",
+		Icon:        "📝",
+		Actor:       task.AssignedClient,
+		Description: fmt.Sprintf("Task %s status changed to %s", task.ID, task.Status),
+		Timestamp:   time.Now().UnixMilli(),
+	})
 }
 
 // PublishClientUpdate publishes a client_update event.
@@ -526,6 +535,14 @@ func (h *Handler) PublishClientUpdate(client *reef.ClientInfo) {
 			CurrentLoad:   client.CurrentLoad,
 			LastHeartbeat: client.LastHeartbeat.UnixMilli(),
 		},
+	})
+	GetActivityStore().Add(ActivityEvent{
+		ID:          "act_" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:        "agent",
+		Icon:        "🤖",
+		Actor:       client.ID,
+		Description: fmt.Sprintf("Client %s state: %s", client.ID, client.State),
+		Timestamp:   time.Now().UnixMilli(),
 	})
 }
 
@@ -860,19 +877,9 @@ func (h *Handler) handleV2BoardMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fallback: verify task exists and status is valid
-	task := h.scheduler.GetTask(req.TaskID)
-	if task == nil {
-		http.Error(w, "task not found", http.StatusNotFound)
-		return
-	}
-
-	if !task.Status.CanTransitionTo(reef.TaskStatus(req.NewStatus)) {
-		writeJSON(w, map[string]string{"error": fmt.Sprintf("invalid transition from %s to %s", task.Status, req.NewStatus)})
-		return
-	}
-
-	writeJSON(w, map[string]string{"status": "moved", "task_id": req.TaskID, "new_status": req.NewStatus})
+	// Fallback: TaskBoardMover not implemented
+	http.Error(w, "board move not supported", http.StatusNotImplemented)
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -917,11 +924,40 @@ func (h *Handler) handleV2ChatroomMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	messages := h.chatStore.Messages(taskID)
+	q := r.URL.Query()
+	limit := 50
+	offset := 0
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	allMessages := h.chatStore.Messages(taskID)
+	total := len(allMessages)
+
+	// Apply offset and limit
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	page := allMessages[start:end]
+
 	writeJSON(w, map[string]any{
 		"task_id":  taskID,
-		"messages": messages,
-		"total":    len(messages),
+		"messages": page,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
 	})
 }
 
@@ -971,7 +1007,7 @@ func (h *Handler) handleV2ChatroomSend(w http.ResponseWriter, r *http.Request, t
 
 	// Publish chat event
 	h.eventBus.Publish(Event{
-		Type: "chat_message",
+		Type: "chatroom_message",
 		Data: msg,
 	})
 
@@ -1008,6 +1044,37 @@ func (h *Handler) routeV2TaskSub(w http.ResponseWriter, r *http.Request) {
 	case "decompose":
 		h.handleV2TaskDecompose(w, r, taskID)
 	default:
+		// GET single task detail (no sub-path)
+		if r.Method == http.MethodGet {
+			task := h.scheduler.GetTask(taskID)
+			if task == nil {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			tr := V2TaskResponse{
+				ID:              task.ID,
+				Status:          string(task.Status),
+				Instruction:     task.Instruction,
+				RequiredRole:    task.RequiredRole,
+				RequiredSkills:  task.RequiredSkills,
+				AssignedClient:  task.AssignedClient,
+				CreatedAt:       task.CreatedAt.UnixMilli(),
+				Result:          task.Result,
+				Error:           task.Error,
+				AttemptHistory:  task.AttemptHistory,
+				EscalationCount: task.EscalationCount,
+			}
+			if task.StartedAt != nil {
+				ts := task.StartedAt.UnixMilli()
+				tr.StartedAt = &ts
+			}
+			if task.CompletedAt != nil {
+				ts := task.CompletedAt.UnixMilli()
+				tr.CompletedAt = &ts
+			}
+			writeJSON(w, tr)
+			return
+		}
 		http.Error(w, "not found", http.StatusNotFound)
 	}
 }

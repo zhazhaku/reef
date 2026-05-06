@@ -188,7 +188,6 @@ func (s *HermesConfig) Put(cfg map[string]interface{}) {
 // ---------------------------------------------------------------------------
 
 var (
-	evolutionHubInstance  EvolutionHub
 	activityStoreInstance *ActivityStore
 	configStoreInstance   *ConfigStore
 	hermesConfigInstance  *HermesConfig
@@ -204,12 +203,6 @@ func ensureStores() {
 	if hermesConfigInstance == nil {
 		hermesConfigInstance = newHermesConfig()
 	}
-}
-
-// SetEvolutionHub sets the global EvolutionHub implementation.
-// Call this from main/server setup if you have a real implementation.
-func SetEvolutionHub(hub EvolutionHub) {
-	evolutionHubInstance = hub
 }
 
 // GetActivityStore returns the global ActivityStore so other packages can push events.
@@ -239,6 +232,11 @@ func extractPathParam(path, prefix string) string {
 // ---------------------------------------------------------------------------
 // Route registration
 // ---------------------------------------------------------------------------
+
+// SetEvolutionHub sets the EvolutionHub implementation on the Handler.
+func (h *Handler) SetEvolutionHub(hub EvolutionHub) {
+	h.evolutionHub = hub
+}
 
 // RegisterV2Routes registers all v2 API routes on the given mux.
 // Call this from RegisterRoutes in ui.go (e.g. h.RegisterV2Routes(mux)).
@@ -274,11 +272,11 @@ func (h *Handler) handleV2GenesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if evolutionHubInstance == nil {
+	if h.evolutionHub == nil {
 		writeJSON(w, []GeneResponse{})
 		return
 	}
-	writeJSON(w, evolutionHubInstance.Genes())
+	writeJSON(w, h.evolutionHub.Genes())
 }
 
 // handleV2GeneAction routes to approve/reject based on suffix.
@@ -289,7 +287,7 @@ func (h *Handler) handleV2GeneAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if evolutionHubInstance == nil {
+	if h.evolutionHub == nil {
 		http.Error(w, "evolution hub not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -319,7 +317,7 @@ func (h *Handler) handleV2GeneAction(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "approve":
-		if err := evolutionHubInstance.ApproveGene(geneID); err != nil {
+		if err := h.evolutionHub.ApproveGene(geneID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -330,7 +328,7 @@ func (h *Handler) handleV2GeneAction(w http.ResponseWriter, r *http.Request) {
 			Reason string `json:"reason"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if err := evolutionHubInstance.RejectGene(geneID, body.Reason); err != nil {
+		if err := h.evolutionHub.RejectGene(geneID, body.Reason); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -340,14 +338,14 @@ func (h *Handler) handleV2GeneAction(w http.ResponseWriter, r *http.Request) {
 
 // handleV2EvolutionStrategy — GET / PUT /api/v2/evolution/strategy
 func (h *Handler) handleV2EvolutionStrategy(w http.ResponseWriter, r *http.Request) {
-	if evolutionHubInstance == nil {
+	if h.evolutionHub == nil {
 		http.Error(w, "evolution hub not configured", http.StatusServiceUnavailable)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, evolutionHubInstance.Strategy())
+		writeJSON(w, h.evolutionHub.Strategy())
 
 	case http.MethodPut:
 		var body struct {
@@ -361,7 +359,7 @@ func (h *Handler) handleV2EvolutionStrategy(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "strategy is required", http.StatusBadRequest)
 			return
 		}
-		if err := evolutionHubInstance.SetStrategy(body.Strategy); err != nil {
+		if err := h.evolutionHub.SetStrategy(body.Strategy); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -378,11 +376,11 @@ func (h *Handler) handleV2CapsulesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if evolutionHubInstance == nil {
+	if h.evolutionHub == nil {
 		writeJSON(w, []CapsuleResponse{})
 		return
 	}
-	writeJSON(w, evolutionHubInstance.Capsules())
+	writeJSON(w, h.evolutionHub.Capsules())
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +408,10 @@ func (h *Handler) handleV2Activity(w http.ResponseWriter, r *http.Request) {
 	if events == nil {
 		events = []ActivityEvent{}
 	}
-	writeJSON(w, events)
+	writeJSON(w, map[string]interface{}{
+		"events": events,
+		"total":  len(events),
+	})
 }
 
 // ---------------------------------------------------------------------------

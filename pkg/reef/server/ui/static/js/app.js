@@ -236,6 +236,14 @@ var ReefApp = (function() {
             }
         });
 
+        eventSource.addEventListener('chat_message', function(e) {
+            try {
+                if (typeof ReefChatroom !== 'undefined' && state.currentPage === 'chatroom') {
+                    ReefChatroom.onMessage(JSON.parse(e.data));
+                }
+            } catch (err) {}
+        });
+
         eventSource.addEventListener('evolution_update', function(e) {
             if (typeof ReefEvolution !== 'undefined' && state.currentPage === 'evolution') {
                 ReefEvolution.refresh();

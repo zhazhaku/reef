@@ -11,10 +11,10 @@ var ReefBoard = (function() {
 
     // Column definitions: column key → display title, data-status for move API
     var COLUMNS = [
-        { key: 'backlog',     title: 'Backlog',     status: 'Queued',    icon: '📋' },
-        { key: 'in_progress',  title: 'In Progress',  status: 'Running',   icon: '⚡' },
-        { key: 'review',       title: 'Review',       status: 'Review',    icon: '🔍' },
-        { key: 'done',         title: 'Done',         status: 'Completed', icon: '✅' }
+        { key: 'backlog',     title: 'Backlog',     status: 'queued',    icon: '📋' },
+        { key: 'in_progress',  title: 'In Progress',  status: 'running',   icon: '⚡' },
+        { key: 'review',       title: 'Review',       status: 'escalated', icon: '🔍' },
+        { key: 'done',         title: 'Done',         status: 'completed', icon: '✅' }
     ];
 
     // ---- Render ----
@@ -160,7 +160,7 @@ var ReefBoard = (function() {
         card.addEventListener('click', function(e) {
             // Don't navigate if dragging was in progress
             if (card.classList.contains('dragging')) return;
-            ReefApp.go('/tasks/decompose/' + encodeURIComponent(task.id || ''));
+            ReefApp.go('/chatroom?task=' + encodeURIComponent(task.id || ''));
         });
 
         // Priority badge

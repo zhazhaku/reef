@@ -166,7 +166,7 @@ var ReefClients = (function() {
                     '<div class="agent-card-stats">' +
                         '<span>📊 Load: ' + load + '</span>' +
                         '<span>🕐 ' + formatHeartbeat(c.last_heartbeat) + '</span>' +
-                        (c.current_task ? '<span style="color:var(--accent);">📝 Task</span>' : '') +
+                        (c.current_task_id ? '<span style="color:var(--accent);">📝 Task</span>' : '') +
                     '</div>' +
                 '</div>';
         });
@@ -200,7 +200,7 @@ var ReefClients = (function() {
             var role = c.role || '--';
             var skills = ReefUtils.skillBadges(c.skills || []);
             var load = c.load !== undefined ? c.load : (c.current_load !== undefined ? c.current_load : 0);
-            var task = c.current_task || '--';
+            var task = c.current_task_id || '--';
 
             html +=
                 '<tr style="cursor:pointer;" data-client-id="' + ReefUtils.escapeHtml(c.id) + '">' +
@@ -258,7 +258,7 @@ var ReefClients = (function() {
             var role = client.role || '--';
             var skills = ReefUtils.skillBadges(client.skills || []);
             var capacity = client.capacity !== undefined ? client.capacity : (client.max_load !== undefined ? client.max_load : '--');
-            var currentTask = client.current_task || 'None';
+            var currentTask = client.current_task_id || 'None';
             var lastHeartbeat = formatHeartbeatFull(client.last_heartbeat);
 
             container.innerHTML =

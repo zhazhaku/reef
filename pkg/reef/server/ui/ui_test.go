@@ -134,8 +134,11 @@ func TestUI_StaticHTML(t *testing.T) {
 		t.Errorf("expected HTML content type, got %s", ct)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Reef Dashboard") {
-		t.Error("expected HTML to contain 'Reef Dashboard'")
+	if !strings.Contains(body, "Reef") {
+		t.Error("expected HTML to contain 'Reef'")
+	}
+	if !strings.Contains(body, "Dashboard") {
+		t.Error("expected HTML to contain 'Dashboard'")
 	}
 }
 

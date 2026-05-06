@@ -28,7 +28,7 @@ var ReefDashboard = (function() {
         if (chartJsLoading) return;
         chartJsLoading = true;
         var script = document.createElement('script');
-        script.src = '/static/js/lib/chart.min.js';
+        script.src = '/static/js/lib/chart.js';
         script.onload = function() {
             chartJsLoaded = true;
             chartJsLoading = false;
@@ -201,7 +201,7 @@ var ReefDashboard = (function() {
 
     // ---- Ring Buffers ----
     function recordThroughput(value) {
-        var now = ReefUtils.formatTime(new Date().toISOString());
+        var now = ReefUtils.formatTime(Date.now());
         throughputBuffer.push(value);
         throughputLabels.push(now);
         if (throughputBuffer.length > MAX_THROUGHPUT) {
@@ -212,7 +212,7 @@ var ReefDashboard = (function() {
     }
 
     function recordQueueDepth(value) {
-        var now = ReefUtils.formatTime(new Date().toISOString());
+        var now = ReefUtils.formatTime(Date.now());
         queueDepthBuffer.push(value);
         queueDepthLabels.push(now);
         if (queueDepthBuffer.length > MAX_QUEUE_DEPTH) {
