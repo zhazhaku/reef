@@ -1,143 +1,102 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reef Dashboard</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Reef — Multi-Agent Dashboard</title>
+    <link rel="stylesheet" href="css/theme.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
 </head>
 <body>
-    <nav class="navbar">
-        <div class="nav-brand">🦞 Reef Dashboard</div>
-        <div class="nav-links">
-            <a href="#/" class="nav-link active" data-page="overview">Overview</a>
-            <a href="#/tasks" class="nav-link" data-page="tasks">Tasks</a>
-            <a href="#/clients" class="nav-link" data-page="clients">Clients</a>
-        </div>
-        <div class="nav-status">
-            <span class="status-dot" id="sse-status"></span>
-            <span id="sse-label">Connecting...</span>
-        </div>
-    </nav>
+    <!-- Sidebar overlay (mobile) -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-    <main class="content">
-        <!-- Overview Page -->
-        <div id="page-overview" class="page active">
-            <div class="stats-grid">
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-uptime">--</div>
-                    <div class="stat-label">Uptime</div>
-                </div>
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-clients">0</div>
-                    <div class="stat-label">Connected Clients</div>
-                </div>
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-queued">0</div>
-                    <div class="stat-label">Queued Tasks</div>
-                </div>
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-running">0</div>
-                    <div class="stat-label">Running Tasks</div>
-                </div>
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-completed">0</div>
-                    <div class="stat-label">Completed</div>
-                </div>
-                <div class="card stat-card">
-                    <div class="stat-value" id="stat-failed">0</div>
-                    <div class="stat-label">Failed</div>
-                </div>
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <span class="sidebar-logo">🦞</span>
+            <span class="sidebar-title">Reef</span>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Overview</div>
+            <a href="#/" class="nav-item active" data-page="dashboard">
+                <span class="nav-icon">📊</span> Dashboard
+            </a>
+            <a href="#/board" class="nav-item" data-page="board">
+                <span class="nav-icon">📋</span> Board
+            </a>
+            <a href="#/activity" class="nav-item" data-page="activity">
+                <span class="nav-icon">📰</span> Activity
+            </a>
+
+            <div class="nav-section-label">Collaborate</div>
+            <a href="#/chatroom" class="nav-item" data-page="chatroom">
+                <span class="nav-icon">💬</span> Chatroom
+            </a>
+            <a href="#/clients" class="nav-item" data-page="clients">
+                <span class="nav-icon">🤖</span> Clients
+            </a>
+            <a href="#/tasks" class="nav-item" data-page="tasks">
+                <span class="nav-icon">📝</span> Tasks
+            </a>
+
+            <div class="nav-section-label">System</div>
+            <a href="#/evolution" class="nav-item" data-page="evolution">
+                <span class="nav-icon">🧬</span> Evolution
+            </a>
+            <a href="#/hermes" class="nav-item" data-page="hermes">
+                <span class="nav-icon">⚙️</span> Hermes
+            </a>
+            <a href="#/config" class="nav-item" data-page="config">
+                <span class="nav-icon">🔧</span> Config
+            </a>
+            <a href="#/monitoring" class="nav-item" data-page="monitoring">
+                <span class="nav-icon">📡</span> Monitoring
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            Reef v2.1 · Hermes UI
+        </div>
+    </aside>
+
+    <!-- Main area -->
+    <div class="main-area">
+        <!-- Topbar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <button id="hamburger" class="hamburger">☰</button>
+                <span id="topbar-breadcrumb" class="topbar-breadcrumb">Dashboard</span>
             </div>
-
-            <div class="card">
-                <h2>Submit Task</h2>
-                <form id="task-form" class="task-form">
-                    <div class="form-group">
-                        <label for="instruction">Instruction</label>
-                        <textarea id="instruction" name="instruction" rows="3" required placeholder="Describe the task..."></textarea>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="required_role">Required Role</label>
-                            <input type="text" id="required_role" name="required_role" required placeholder="e.g. coder, reviewer">
-                        </div>
-                        <div class="form-group">
-                            <label for="required_skills">Skills (comma-separated)</label>
-                            <input type="text" id="required_skills" name="required_skills" placeholder="e.g. go, python">
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Submit Task</button>
-                </form>
-                <div id="submit-result" class="submit-result hidden"></div>
+            <div class="topbar-right">
+                <div class="sse-indicator">
+                    <span id="sse-dot" class="sse-dot"></span>
+                    <span id="sse-label">Connecting...</span>
+                </div>
+                <span class="hermes-mode-badge" id="hermes-mode-badge">Coordinator</span>
+                <button id="theme-toggle" class="btn-icon" title="Toggle theme">☀️</button>
             </div>
-        </div>
+        </header>
 
-        <!-- Tasks Page -->
-        <div id="page-tasks" class="page">
-            <div class="card">
-                <div class="card-header">
-                    <h2>Tasks</h2>
-                    <div class="filters">
-                        <select id="filter-status" class="filter-select">
-                            <option value="">All Statuses</option>
-                            <option value="Queued">Queued</option>
-                            <option value="Running">Running</option>
-                            <option value="Completed">Completed</option>
-                            <option value="Failed">Failed</option>
-                            <option value="Cancelled">Cancelled</option>
-                            <option value="Escalated">Escalated</option>
-                        </select>
-                        <input type="text" id="filter-role" class="filter-input" placeholder="Filter by role...">
-                        <button id="btn-refresh-tasks" class="btn btn-secondary">Refresh</button>
-                    </div>
-                </div>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Status</th>
-                                <th>Role</th>
-                                <th>Instruction</th>
-                                <th>Assigned To</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tasks-body"></tbody>
-                    </table>
-                </div>
-                <div class="pagination" id="tasks-pagination"></div>
-            </div>
-        </div>
+        <!-- Page content (rendered by JS) -->
+        <main id="page-content" class="content">
+            <!-- Pages inject content here -->
+        </main>
+    </div>
 
-        <!-- Clients Page -->
-        <div id="page-clients" class="page">
-            <div class="card">
-                <div class="card-header">
-                    <h2>Clients</h2>
-                    <button id="btn-refresh-clients" class="btn btn-secondary">Refresh</button>
-                </div>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Role</th>
-                                <th>Skills</th>
-                                <th>State</th>
-                                <th>Load</th>
-                                <th>Last Heartbeat</th>
-                            </tr>
-                        </thead>
-                        <tbody id="clients-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <script src="app.js"></script>
+    <!-- Scripts -->
+    <script src="js/lib/chart.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/board.js"></script>
+    <script src="js/chatroom.js"></script>
+    <script src="js/clients.js"></script>
+    <script src="js/tasks.js"></script>
+    <script src="js/evolution.js"></script>
+    <script src="js/hermes.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/activity.js"></script>
+    <script src="js/monitoring.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
