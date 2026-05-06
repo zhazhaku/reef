@@ -17,7 +17,7 @@
 - **操作能力**：无法通过 UI 取消/暂停/恢复任务、重启 Client、切换模式
 - **生产级运维**：缺少日志查看、性能图表、告警配置、备份恢复
 
-参考项目：AutoGen Studio、Langflow、n8n、Swarm UI、Claude Code UI
+参考项目：Multica、Evolver、Ruflo、AutoGen Studio、Langflow、CrewAI、MetaGPT
 
 ## 2. 目标
 
