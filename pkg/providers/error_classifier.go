@@ -314,6 +314,24 @@ func IsImageSizeError(msg string) bool {
 	return matchesAny(msg, imageSizePatterns)
 }
 
+// IsRetryable returns true if the error is transient and worth retrying.
+// This covers network errors (connection reset, broken pipe, etc.),
+// timeouts, rate limits, and overloaded responses.
+func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Context cancellation is not retryable
+	if err == context.Canceled {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return matchesAny(msg, networkPatterns) ||
+		matchesAny(msg, timeoutPatterns) ||
+		matchesAny(msg, rateLimitPatterns) ||
+		matchesAny(msg, overloadedPatterns)
+}
+
 // matchesAny checks if msg matches any of the patterns.
 func matchesAny(msg string, patterns []errorPattern) bool {
 	for _, p := range patterns {

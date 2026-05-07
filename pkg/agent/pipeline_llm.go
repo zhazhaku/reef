@@ -186,6 +186,17 @@ func (p *Pipeline) CallLLM(
 	// Retry loop
 	var err error
 	maxRetries := 2
+	if p.Cfg != nil && p.Cfg.Agents.Defaults.LLMRetryMaxAttempts > 0 {
+		maxRetries = p.Cfg.Agents.Defaults.LLMRetryMaxAttempts
+	}
+	baseDelay := 5 * time.Second
+	if p.Cfg != nil && p.Cfg.Agents.Defaults.LLMRetryBaseDelaySeconds > 0 {
+		baseDelay = time.Duration(p.Cfg.Agents.Defaults.LLMRetryBaseDelaySeconds) * time.Second
+	}
+	scheduledInterval := 10 * time.Minute
+	if p.Cfg != nil && p.Cfg.Agents.Defaults.ScheduledRetryIntervalMinutes > 0 {
+		scheduledInterval = time.Duration(p.Cfg.Agents.Defaults.ScheduledRetryIntervalMinutes) * time.Minute
+	}
 	llmCallStart := time.Now()
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
@@ -246,7 +257,7 @@ func (p *Pipeline) CallLLM(
 			strings.Contains(errMsg, "request too large"))
 
 		if isTimeoutError && retry < maxRetries {
-			backoff := time.Duration(retry+1) * 5 * time.Second
+			backoff := time.Duration(retry+1) * baseDelay
 			al.emitEvent(
 				EventKindLLMRetry,
 				ts.eventMeta("runTurn", "turn.llm.retry"),
@@ -330,7 +341,59 @@ func (p *Pipeline) CallLLM(
 			}
 			continue
 		}
+
+		// Generic transient error (connection abort, reset, broken pipe, etc.)
+		isTransient := providers.IsRetryable(err)
+		if isTransient && retry < maxRetries {
+			backoff := time.Duration(retry+1) * baseDelay
+			al.emitEvent(
+				EventKindLLMRetry,
+				ts.eventMeta("runTurn", "turn.llm.retry"),
+				LLMRetryPayload{
+					Attempt:    retry + 1,
+					MaxRetries: maxRetries,
+					Reason:     "transient",
+					Error:      err.Error(),
+					Backoff:    backoff,
+				},
+			)
+			logger.WarnCF("agent", "Transient network error, retrying after backoff", map[string]any{
+				"error":   err.Error(),
+				"retry":   retry,
+				"backoff": backoff.String(),
+			})
+			if sleepErr := sleepWithContext(turnCtx, backoff); sleepErr != nil {
+				if ts.hardAbortRequested() {
+					_ = ts.requestHardAbort()
+					return ControlBreak, nil
+				}
+				err = sleepErr
+				break
+			}
+			continue
+		}
 		break
+	}
+
+	// If all retries exhausted and the error is retryable, schedule a re-attempt
+	if err != nil && providers.IsRetryable(err) && !ts.hardAbortRequested() {
+		logger.WarnCF("agent", "All LLM retries exhausted, scheduling re-attempt", map[string]any{
+			"error":       err.Error(),
+			"max_retries": maxRetries,
+			"interval":    scheduledInterval.String(),
+			"session_key": ts.sessionKey,
+		})
+		al.emitEvent(
+			EventKindLLMRetry,
+			ts.eventMeta("runTurn", "turn.llm.retry"),
+			LLMRetryPayload{
+				Attempt:    maxRetries + 1,
+				MaxRetries: maxRetries,
+				Reason:     "scheduled",
+				Error:      err.Error(),
+				Backoff:    scheduledInterval,
+			},
+		)
 	}
 
 	if err != nil {

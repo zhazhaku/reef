@@ -308,6 +308,9 @@ type AgentDefaults struct {
 	ImageModel                string             `json:"image_model,omitempty"            env:"REEF_AGENTS_DEFAULTS_IMAGE_MODEL"`
 	ImageModelFallbacks       []string           `json:"image_model_fallbacks,omitempty"`
 	MaxTokens                 int                `json:"max_tokens"                       env:"REEF_AGENTS_DEFAULTS_MAX_TOKENS"`
+	LLMRetryMaxAttempts            int `json:"llm_retry_max_attempts,omitempty"            env:"REEF_AGENTS_DEFAULTS_LLM_RETRY_MAX_ATTEMPTS"`
+	LLMRetryBaseDelaySeconds       int `json:"llm_retry_base_delay_seconds,omitempty"     env:"REEF_AGENTS_DEFAULTS_LLM_RETRY_BASE_DELAY_SECONDS"`
+	ScheduledRetryIntervalMinutes  int `json:"scheduled_retry_interval_minutes,omitempty" env:"REEF_AGENTS_DEFAULTS_SCHEDULED_RETRY_INTERVAL_MINUTES"`
 	ContextWindow             int                `json:"context_window,omitempty"         env:"REEF_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
 	Temperature               *float64           `json:"temperature,omitempty"            env:"REEF_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations         int                `json:"max_tool_iterations"              env:"REEF_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`

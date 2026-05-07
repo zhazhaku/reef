@@ -29,6 +29,9 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace:       true,
 				Provider:                  "",
 				MaxTokens:                 32768,
+				LLMRetryMaxAttempts:            2,
+				LLMRetryBaseDelaySeconds:       5,
+				ScheduledRetryIntervalMinutes:  10,
 				Temperature:               nil, // nil means use provider default
 				MaxToolIterations:         50,
 				SummarizeMessageThreshold: 20,
