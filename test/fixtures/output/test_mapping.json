@@ -1,0 +1,14 @@
+{
+  "mappings": [
+    {
+      "plan_slide": 1,
+      "template_slide": 1,
+      "reason": "Cover slide"
+    },
+    {
+      "plan_slide": 2,
+      "template_slide": 2,
+      "reason": "Content with bullets"
+    }
+  ]
+}

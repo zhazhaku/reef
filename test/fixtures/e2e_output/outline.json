@@ -1,0 +1,35 @@
+{
+  "title": "Project Reef",
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "Project Reef",
+      "summary": "Introduction",
+      "slide_type": "COVER"
+    },
+    {
+      "slide_number": 2,
+      "title": "Features",
+      "summary": "Capabilities",
+      "slide_type": "CONTENT"
+    },
+    {
+      "slide_number": 3,
+      "title": "Architecture",
+      "summary": "Design",
+      "slide_type": "CONTENT"
+    },
+    {
+      "slide_number": 4,
+      "title": "Next Steps",
+      "summary": "Future",
+      "slide_type": "CONTENT"
+    },
+    {
+      "slide_number": 5,
+      "title": "Thank You",
+      "summary": "Close",
+      "slide_type": "ENDING"
+    }
+  ]
+}

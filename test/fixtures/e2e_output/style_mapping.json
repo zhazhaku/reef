@@ -1,0 +1,29 @@
+{
+  "mappings": [
+    {
+      "plan_slide": 1,
+      "template_slide": 1,
+      "reason": "Cover"
+    },
+    {
+      "plan_slide": 2,
+      "template_slide": 2,
+      "reason": "Content bullets"
+    },
+    {
+      "plan_slide": 3,
+      "template_slide": 2,
+      "reason": "Content text"
+    },
+    {
+      "plan_slide": 4,
+      "template_slide": 2,
+      "reason": "Content bullets"
+    },
+    {
+      "plan_slide": 5,
+      "template_slide": 5,
+      "reason": "Ending"
+    }
+  ]
+}

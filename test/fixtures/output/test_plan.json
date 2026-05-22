@@ -1,0 +1,46 @@
+{
+  "title": "Test Presentation",
+  "slides": [
+    {
+      "slide_number": 1,
+      "slide_type": "COVER",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Project Reef",
+          "overrides": {
+            "font_size": 44
+          }
+        },
+        {
+          "type": "subtitle",
+          "content": "A Distributed AI Swarm",
+          "overrides": {
+            "font_size": 24
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 2,
+      "slide_type": "CONTENT",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Key Features"
+        },
+        {
+          "type": "bullet_list",
+          "items": [
+            "Multi-agent orchestration",
+            "Skill-based task routing",
+            "Sandboxed execution"
+          ],
+          "overrides": {
+            "font_size": 18
+          }
+        }
+      ]
+    }
+  ]
+}

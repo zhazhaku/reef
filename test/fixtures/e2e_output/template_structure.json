@@ -1,0 +1,458 @@
+{
+  "slides": [
+    {
+      "slide_number": 1,
+      "slide_type": "COVER",
+      "shapes": [
+        {
+          "type": "PLACEHOLDER",
+          "left": 685800,
+          "top": 2130425,
+          "width": 7772400,
+          "height": 1470025,
+          "name": "Title 1",
+          "shape_id": 2,
+          "placeholder_idx": 0,
+          "placeholder_type": "CENTER_TITLE (3)",
+          "text_content": {
+            "full_text": "Template Cover Title",
+            "paragraphs": [
+              {
+                "text": "Template Cover Title",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Template Cover Title",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "PLACEHOLDER",
+          "left": 1371600,
+          "top": 3886200,
+          "width": 6400800,
+          "height": 1752600,
+          "name": "Subtitle 2",
+          "shape_id": 3,
+          "placeholder_idx": 1,
+          "placeholder_type": "SUBTITLE (4)",
+          "text_content": {
+            "full_text": "Template Cover Subtitle",
+            "paragraphs": [
+              {
+                "text": "Template Cover Subtitle",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Template Cover Subtitle",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 2,
+      "slide_type": "CONTENT",
+      "shapes": [
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 274638,
+          "width": 8229600,
+          "height": 1143000,
+          "name": "Title 1",
+          "shape_id": 2,
+          "placeholder_idx": 0,
+          "placeholder_type": "TITLE (1)",
+          "text_content": {
+            "full_text": "Section Title",
+            "paragraphs": [
+              {
+                "text": "Section Title",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Section Title",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 1600200,
+          "width": 8229600,
+          "height": 4525963,
+          "name": "Content Placeholder 2",
+          "shape_id": 3,
+          "placeholder_idx": 1,
+          "placeholder_type": "OBJECT (7)",
+          "text_content": {
+            "full_text": "Point one with some detail text\nPoint two with more information\nPoint three - important note\nPoint four - summary",
+            "paragraphs": [
+              {
+                "text": "Point one with some detail text",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Point one with some detail text",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "Point two with more information",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Point two with more information",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "Point three - important note",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Point three - important note",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "Point four - summary",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Point four - summary",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 3,
+      "slide_type": "CONTENT",
+      "shapes": [
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 274638,
+          "width": 8229600,
+          "height": 1143000,
+          "name": "Title 1",
+          "shape_id": 2,
+          "placeholder_idx": 0,
+          "placeholder_type": "TITLE (1)",
+          "text_content": {
+            "full_text": "Content with Image",
+            "paragraphs": [
+              {
+                "text": "Content with Image",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Content with Image",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 1600200,
+          "width": 8229600,
+          "height": 4525963,
+          "name": "Content Placeholder 2",
+          "shape_id": 3,
+          "placeholder_idx": 1,
+          "placeholder_type": "OBJECT (7)",
+          "text_content": {
+            "full_text": "This slide has space for an image on the right",
+            "paragraphs": [
+              {
+                "text": "This slide has space for an image on the right",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "This slide has space for an image on the right",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 4,
+      "slide_type": "CONTENT",
+      "shapes": [
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 274638,
+          "width": 8229600,
+          "height": 1143000,
+          "name": "Title 1",
+          "shape_id": 2,
+          "placeholder_idx": 0,
+          "placeholder_type": "TITLE (1)",
+          "text_content": {
+            "full_text": "Agenda",
+            "paragraphs": [
+              {
+                "text": "Agenda",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Agenda",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "PLACEHOLDER",
+          "left": 457200,
+          "top": 1600200,
+          "width": 8229600,
+          "height": 4525963,
+          "name": "Content Placeholder 2",
+          "shape_id": 3,
+          "placeholder_idx": 1,
+          "placeholder_type": "OBJECT (7)",
+          "text_content": {
+            "full_text": "1. Introduction\n2. Background\n3. Solution\n4. Results\n5. Next Steps",
+            "paragraphs": [
+              {
+                "text": "1. Introduction",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "1. Introduction",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "2. Background",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "2. Background",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "3. Solution",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "3. Solution",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "4. Results",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "4. Results",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              },
+              {
+                "text": "5. Next Steps",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "5. Next Steps",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 5,
+      "slide_type": "ENDING",
+      "shapes": [
+        {
+          "type": "PLACEHOLDER",
+          "left": 685800,
+          "top": 2130425,
+          "width": 7772400,
+          "height": 1470025,
+          "name": "Title 1",
+          "shape_id": 2,
+          "placeholder_idx": 0,
+          "placeholder_type": "CENTER_TITLE (3)",
+          "text_content": {
+            "full_text": "Thank You",
+            "paragraphs": [
+              {
+                "text": "Thank You",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Thank You",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "PLACEHOLDER",
+          "left": 1371600,
+          "top": 3886200,
+          "width": 6400800,
+          "height": 1752600,
+          "name": "Subtitle 2",
+          "shape_id": 3,
+          "placeholder_idx": 1,
+          "placeholder_type": "SUBTITLE (4)",
+          "text_content": {
+            "full_text": "Q & A",
+            "paragraphs": [
+              {
+                "text": "Q & A",
+                "alignment": null,
+                "level": 0,
+                "runs": [
+                  {
+                    "text": "Q & A",
+                    "font_name": null,
+                    "font_size_pt": null,
+                    "bold": false,
+                    "italic": false,
+                    "color_hex": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "theme": {
+    "slide_width": 12191695,
+    "slide_height": 6858000,
+    "theme_colors": [],
+    "default_fonts": {
+      "major": null,
+      "minor": null
+    }
+  }
+}

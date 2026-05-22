@@ -1,0 +1,107 @@
+{
+  "title": "Project Reef",
+  "slides": [
+    {
+      "slide_number": 1,
+      "slide_type": "COVER",
+      "title": "Project Reef",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Project Reef",
+          "overrides": {
+            "font_size": 44
+          }
+        },
+        {
+          "type": "subtitle",
+          "content": "Distributed AI Swarm",
+          "overrides": {}
+        }
+      ]
+    },
+    {
+      "slide_number": 2,
+      "slide_type": "CONTENT",
+      "title": "Features",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Key Features",
+          "overrides": {}
+        },
+        {
+          "type": "bullet_list",
+          "items": [
+            "Multi-agent",
+            "Skill routing",
+            "Sandboxed exec"
+          ],
+          "overrides": {
+            "font_size": 18
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 3,
+      "slide_type": "CONTENT",
+      "title": "Architecture",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Architecture",
+          "overrides": {}
+        },
+        {
+          "type": "text",
+          "content": "Distributed system with central server and agent clients.",
+          "overrides": {}
+        }
+      ]
+    },
+    {
+      "slide_number": 4,
+      "slide_type": "CONTENT",
+      "title": "Next Steps",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Next Steps",
+          "overrides": {}
+        },
+        {
+          "type": "bullet_list",
+          "items": [
+            "Deploy",
+            "Add roles",
+            "Dashboard"
+          ],
+          "overrides": {
+            "font_size": 18
+          }
+        }
+      ]
+    },
+    {
+      "slide_number": 5,
+      "slide_type": "ENDING",
+      "title": "Thank You",
+      "content_blocks": [
+        {
+          "type": "title",
+          "content": "Thank You",
+          "overrides": {
+            "font_size": 48,
+            "color": "#1A56DB"
+          }
+        },
+        {
+          "type": "subtitle",
+          "content": "Q & A",
+          "overrides": {}
+        }
+      ]
+    }
+  ]
+}
