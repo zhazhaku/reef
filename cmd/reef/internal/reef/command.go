@@ -9,13 +9,42 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/zhazhaku/reef/pkg/reef/server"
 )
+
+// dumpGoroutines writes a full goroutine stack dump to a timestamped file
+// under /tmp. Invoked on SIGQUIT for diagnosing hangs without killing the process.
+func dumpGoroutines() {
+	ts := time.Now().Format("20060102-150405")
+	path := fmt.Sprintf("/tmp/reef-goroutines-%d-%s.log", os.Getpid(), ts)
+	f, err := os.Create(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "goroutine dump: cannot create %s: %v\n", path, err)
+		return
+	}
+	defer f.Close()
+	buf := make([]byte, 1<<20) // 1 MiB initial
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			f.Write(buf[:n])
+			break
+		}
+		buf = make([]byte, len(buf)*2)
+		if len(buf) > 64<<20 {
+			f.Write(buf[:n])
+			break
+		}
+	}
+	fmt.Fprintf(os.Stderr, "goroutine dump written: %s\n", path)
+}
 
 func NewReefCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -74,6 +103,16 @@ func newReefServerCommand() *cobra.Command {
 			fmt.Printf("  WebSocket: %s\n", wsAddr)
 			fmt.Printf("  Admin:     %s\n", adminAddr)
 			fmt.Println("Press Ctrl+C to stop")
+
+			// SIGQUIT handler: dump all goroutines to a file for diagnosing hangs.
+			// Send via: kill -QUIT <pid>; output goes to /tmp/reef-goroutines-<pid>-<ts>.log
+			quitChan := make(chan os.Signal, 1)
+			signal.Notify(quitChan, syscall.SIGQUIT)
+			go func() {
+				for range quitChan {
+					dumpGoroutines()
+				}
+			}()
 
 			sigChan := make(chan os.Signal, 1)
 			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
