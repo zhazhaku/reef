@@ -127,6 +127,18 @@ func (t *ReefSubmitTaskTool) Execute(ctx context.Context, args map[string]any) *
 	replyToChatID, _ := args["reply_to_chat_id"].(string)
 	replyToMsgID, _ := args["reply_to_message_id"].(string)
 
+	// Fallback: if no explicit reply_to args, read from tool context
+	// (automatically populated from the inbound message's channel/chatID).
+	if replyToChannel == "" {
+		replyToChannel = ToolChannel(ctx)
+	}
+	if replyToChatID == "" {
+		replyToChatID = ToolChatID(ctx)
+	}
+	if replyToMsgID == "" {
+		replyToMsgID = ToolReplyToMessageID(ctx)
+	}
+
 	opts := reef.TaskOptions{
 		MaxRetries: 2,
 		TimeoutMs:  timeoutMs,
