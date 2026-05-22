@@ -141,6 +141,9 @@ type HermesConfig struct {
 	// FallbackTimeoutMs is the time in milliseconds to wait for a client
 	// before degrading. 0 means immediate fallback when no clients are online.
 	FallbackTimeoutMs int `json:"fallback_timeout_ms,omitempty"`
+	// LLMTimeoutSeconds overrides the default Hermes LLM call timeout (120s).
+	// Increase for slow reasoning models (e.g. DeepSeek V4 xhigh).
+	LLMTimeoutSeconds int `json:"llm_timeout_seconds,omitempty"`
 }
 
 // HermesMode returns the parsed Hermes mode string.
@@ -314,6 +317,7 @@ type AgentDefaults struct {
 	ContextWindow             int                `json:"context_window,omitempty"         env:"REEF_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
 	Temperature               *float64           `json:"temperature,omitempty"            env:"REEF_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations         int                `json:"max_tool_iterations"              env:"REEF_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	TurnTimeoutMinutes        int                `json:"turn_timeout_minutes,omitempty"   env:"REEF_AGENTS_DEFAULTS_TURN_TIMEOUT_MINUTES"`
 	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"REEF_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
 	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"REEF_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"REEF_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`

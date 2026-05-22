@@ -49,28 +49,44 @@ toolLoop:
 		// This is a runtime check that complements the structural tool
 		// registration constraint. It catches cases where tools were
 		// dynamically registered during fallback and haven't been removed yet.
+		//
+		// Per-conversation mode takes precedence over the process-level
+		// Hermes mode: a conversation in ModeChat has all tools available
+		// regardless of the process-level coordinator setting.
 		if al.hermesGuard != nil && !al.hermesGuard.Allow(toolName) {
-			toolDenyMsg := fmt.Sprintf(
-				"Tool %q is not allowed in Hermes %s mode. "+
-					"As a coordinator, use reef_submit_task to delegate this task to a team member.",
-				toolName, al.hermesMode)
-			logger.WarnCF("hermes", "Hermes guard blocked tool call",
-				map[string]any{
-					"tool":      toolName,
-					"mode":      string(al.hermesMode),
-					"agent_id":  ts.agent.ID,
-					"iteration": iteration,
+			// Check if this specific conversation is in chat mode.
+			// Chat mode bypasses the Hermes guard entirely.
+			convBlocked := true
+			if al.modeStore != nil {
+				convID := ts.channel + ":" + ts.chatID
+				if convMode, err := al.modeStore.GetMode(ctx, convID); err == nil && convMode == ModeChat {
+					convBlocked = false
+				}
+			}
+
+			if convBlocked {
+				toolDenyMsg := fmt.Sprintf(
+					"Tool %q is not allowed in Hermes %s mode. "+
+						"As a coordinator, use reef_submit_task to delegate this task to a team member.",
+					toolName, al.hermesMode)
+				logger.WarnCF("hermes", "Hermes guard blocked tool call",
+					map[string]any{
+						"tool":      toolName,
+						"mode":      string(al.hermesMode),
+						"agent_id":  ts.agent.ID,
+						"iteration": iteration,
+					})
+				messages = append(messages, providers.Message{
+					Role:    "tool",
+					Content: toolDenyMsg,
+					ToolCalls: []providers.ToolCall{{
+						ID:   tc.ID,
+						Name: toolName,
+					}},
+					ToolCallID: tc.ID,
 				})
-			messages = append(messages, providers.Message{
-				Role:    "tool",
-				Content: toolDenyMsg,
-				ToolCalls: []providers.ToolCall{{
-					ID:   tc.ID,
-					Name: toolName,
-				}},
-				ToolCallID: tc.ID,
-			})
-			continue
+				continue
+			}
 		}
 
 		if al.hooks != nil {
@@ -201,6 +217,7 @@ toolLoop:
 					if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
 						contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
 					}
+					contentForLLM = TruncateToolResult(toolName, contentForLLM)
 
 					toolResultMsg := providers.Message{
 						Role:       "tool",
@@ -586,6 +603,7 @@ toolLoop:
 			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
 		}
 
+			contentForLLM = TruncateToolResult(toolName, contentForLLM)
 		toolResultMsg := providers.Message{
 			Role:       "tool",
 			Content:    contentForLLM,

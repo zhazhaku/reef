@@ -106,12 +106,31 @@ func isOverContextBudget(
 	maxTokens int,
 ) bool {
 	msgTokens := 0
+	reasoningTokens := 0
 	for _, m := range messages {
 		msgTokens += EstimateMessageTokens(m)
+		reasoningTokens += len(m.ReasoningContent) * 2 / 5
 	}
 
 	toolTokens := EstimateToolDefsTokens(toolDefs)
 	total := msgTokens + toolTokens + maxTokens
 
-	return total > contextWindow
+	// Primary trigger: total exceeds context window
+	if total > contextWindow {
+		return true
+	}
+
+	// Secondary trigger: reasoning bloat >30% of total message tokens
+	// DeepSeek V4 thinking mode accumulates reasoning content over long
+	// conversations (e.g. 57k reasoning in 138k total). Without this
+	// trigger, compression never fires because the context window
+	// (262k) is never exceeded, but effective context is diluted.
+	if reasoningTokens > 0 && msgTokens > 0 {
+		ratio := reasoningTokens * 100 / msgTokens
+		if ratio > 30 {
+			return true
+		}
+	}
+
+	return false
 }

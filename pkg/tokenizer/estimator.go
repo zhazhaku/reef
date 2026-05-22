@@ -54,7 +54,11 @@ func EstimateMessageTokens(msg providers.Message) int {
 	const messageOverhead = 12
 	chars += messageOverhead
 
-	tokens := chars * 2 / 5
+	// Calibrated to ~28.6% (chars*2/7).
+	// Empirical data from 400+ turns against DeepSeek V4 Pro API shows
+	// chars*2/5 over-counts by 25-40% (e.g. 148k estimate vs 114k actual).
+	// chars*2/7 closes this gap to within 5-10% for English+JSON content.
+	tokens := chars * 2 / 7
 
 	// Media items (images, files) are serialized by provider adapters into
 	// multipart or image_url payloads. Add a fixed per-item token estimate
@@ -87,5 +91,5 @@ func EstimateToolDefsTokens(defs []providers.ToolDefinition) int {
 		totalChars += 20
 	}
 
-	return totalChars * 2 / 5
+	return totalChars * 2 / 7
 }

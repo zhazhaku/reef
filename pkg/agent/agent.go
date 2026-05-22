@@ -64,6 +64,8 @@ type AgentLoop struct {
 	// Hermes capability architecture
 	hermesMode  HermesMode
 	hermesGuard *HermesGuard
+	modeStore   *ModeStore
+	hermesOrch  *HermesOrchestrator
 
 	// activeTurnStates tracks active turns per session to prevent duplicates.
 	activeTurnStates sync.Map
@@ -158,6 +160,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				return nil
 			}
 
+			// Mode switch commands are intercepted before normal processing.
+			// They do NOT create a turn, do NOT write to seahorse, and
+			// reply immediately with a simple text response.
+			if handled := al.handleConversationModeSwitch(ctx, msg); handled {
+				continue
+			}
+
 			// Resolve the session key for this message
 			sessionKey, agentID, ok := al.resolveSteeringTarget(msg)
 			if !ok {
@@ -166,6 +175,27 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				// so they block the receive loop but guarantee session serialization.
 				al.processMessageSync(ctx, msg)
 				continue
+			}
+
+			// Override session key with active conversation mode.
+			// Chat and Hermes modes use seahorse-isolated conversations
+			// so context from one mode is invisible in the other.
+			sessionKey = al.withModeSessionKey(sessionKey, msg)
+
+			// In Hermes mode, messages go through the orchestrator instead
+			// of the normal AgentLoop turn processing.
+			if al.hermesOrch != nil {
+				convID := msg.Channel + ":" + msg.ChatID
+				mode, _ := al.modeStore.GetMode(ctx, convID)
+				if mode == ModeHermes {
+					reply, handled := al.hermesOrch.ProcessMessage(ctx, convID, msg)
+					if handled {
+						if reply != "" {
+							al.sendModeSwitchReply(msg.Channel, msg.ChatID, reply)
+						}
+						continue
+					}
+				}
 			}
 
 			// Atomically claim the session key with a unique placeholder sentinel
@@ -279,6 +309,94 @@ func (al *AgentLoop) SetHermesMode(mode HermesMode) {
 // HermesMode returns the current Hermes operational mode.
 func (al *AgentLoop) HermesMode() HermesMode {
 	return al.hermesMode
+}
+
+// handleConversationModeSwitch checks if a message is a mode-switch command.
+// If so, it switches the conversation mode, sends a response, and returns true.
+// Returns false if the message is not a mode command — the caller should process
+// it normally.
+func (al *AgentLoop) handleConversationModeSwitch(ctx context.Context, msg bus.InboundMessage) bool {
+	if al.modeStore == nil {
+		return false
+	}
+
+	cmd := detectModeCommand(msg.Content)
+	if cmd == ModeCmdNone {
+		return false
+	}
+
+	// Derive conversation ID from channel + chat
+	convID := msg.Channel + ":" + msg.ChatID
+
+	currentMode, err := al.modeStore.GetMode(ctx, convID)
+	if err != nil {
+		logger.WarnCF("agent", "Mode store get failed", map[string]any{
+			"conv_id": convID,
+			"error":   err.Error(),
+		})
+		return false
+	}
+
+	switch cmd {
+	case ModeCmdSwitchToChat:
+		if err := al.modeStore.SetMode(ctx, convID, ModeChat); err != nil {
+			logger.WarnCF("agent", "Mode store set failed", map[string]any{"error": err.Error()})
+			al.sendModeSwitchReply(msg.Channel, msg.ChatID, "模式切换失败，请重试。")
+			return true
+		}
+		// Clear Hermes guard so all tools are available in chat mode.
+		al.hermesGuard = nil
+		al.sendModeSwitchReply(msg.Channel, msg.ChatID, "已切换到聊天模式。所有工具可用，自由对话。")
+		return true
+
+	case ModeCmdSwitchToHermes:
+		if err := al.modeStore.SetMode(ctx, convID, ModeHermes); err != nil {
+			logger.WarnCF("agent", "Mode store set failed", map[string]any{"error": err.Error()})
+			al.sendModeSwitchReply(msg.Channel, msg.ChatID, "模式切换失败，请重试。")
+			return true
+		}
+		// Re-initialize Hermes guard for the current Hermes operational mode.
+		if al.hermesGuard == nil {
+			al.hermesGuard = NewHermesGuard(al.hermesMode)
+		}
+		al.sendModeSwitchReply(msg.Channel, msg.ChatID, "已切换到 Hermes 模式。当前无进行中的工作流，请发送需求开始协作。")
+		return true
+
+	case ModeCmdShowMode:
+		al.sendModeSwitchReply(msg.Channel, msg.ChatID, "当前模式: "+currentMode.String())
+		return true
+
+	default:
+		return false
+	}
+}
+
+// sendModeSwitchReply sends a simple text reply without creating a turn.
+func (al *AgentLoop) sendModeSwitchReply(channel, chatID, text string) {
+	resp := bus.OutboundMessage{
+		Channel: channel,
+		ChatID:  chatID,
+		Content: text,
+	}
+	if al.channelManager != nil {
+		_ = al.channelManager.SendMessage(context.Background(), resp)
+	}
+}
+
+// withModeSessionKey appends the current conversation mode suffix to the
+// session key so that Chat and Hermes modes use isolated seahorse
+// conversations. The convID is derived from the message's channel+chat.
+func (al *AgentLoop) withModeSessionKey(baseSessionKey string, msg bus.InboundMessage) string {
+	if al.modeStore == nil {
+		return baseSessionKey
+	}
+	convID := msg.Channel + ":" + msg.ChatID
+	mode, err := al.modeStore.GetMode(context.Background(), convID)
+	if err != nil || mode == ModeChat {
+		return baseSessionKey
+	}
+	// Append mode suffix for Hermes
+	return baseSessionKey + ":hermes"
 }
 
 // HermesGuard returns the Hermes guard for runtime tool access control.

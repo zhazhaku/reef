@@ -14,7 +14,14 @@ import (
 )
 
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
-	turnCtx, turnCancel := context.WithCancel(ctx)
+	// Turn-level safety timeout: prevents indefinite hangs caused by
+	// LLM provider timeouts, tool stalls, or degenerate repetition loops.
+	// Default 10 minutes; overridable via TurnTimeoutMinutes in agent config.
+	turnTimeout := 10 * time.Minute
+	if ts.agent.TurnTimeoutMinutes > 0 {
+		turnTimeout = time.Duration(ts.agent.TurnTimeoutMinutes) * time.Minute
+	}
+	turnCtx, turnCancel := context.WithTimeout(ctx, turnTimeout)
 	defer turnCancel()
 	ts.setTurnCancel(turnCancel)
 
@@ -38,6 +45,29 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			},
 		)
 	}()
+
+		// Async reflection: analyze turn and write learnings to MEMORY.md.
+		// Runs in background goroutine, never blocks the turn response.
+		if ts.agent.Provider != nil && ts.agent.Model != "" && ts.agent.ContextBuilder != nil {
+			go func() {
+				ReflectOnTurn(
+					al,
+					ts.agent.Provider,
+					ts.agent.Model,
+					ts.sessionKey,
+					ts.turnID,
+					ts.currentIteration(),
+					0,
+					ts.channel,
+					ts.chatID,
+					ts.userMessage,
+					ts.finalContent,
+					ts.agent.Sessions.GetHistory(ts.sessionKey),
+					ts.agent.ContextBuilder.Memory(),
+					DefaultReflectorConfig(),
+				)
+			}()
+		}
 
 	al.emitEvent(
 		EventKindTurnStart,
@@ -67,6 +97,24 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		if ts.hardAbortRequested() {
 			turnStatus = TurnEndStatusAborted
 			return al.abortTurn(ts)
+		}
+
+		// Turn-level timeout guard: if the turn context has expired,
+		// abort gracefully with a clear timeout message instead of
+		// falling through to a generic error/default response.
+		if err := turnCtx.Err(); err != nil {
+			logger.WarnCF("agent", "Turn context expired, aborting gracefully",
+				map[string]any{
+					"agent_id":  ts.agentID,
+					"iteration": ts.currentIteration(),
+					"turn_id":   ts.turnID,
+					"err":       err.Error(),
+				})
+			turnStatus = TurnEndStatusError
+			if finalContent == "" {
+				finalContent = "处理超时，请稍后重试。"
+			}
+			return pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
 		}
 
 		iteration := ts.currentIteration() + 1

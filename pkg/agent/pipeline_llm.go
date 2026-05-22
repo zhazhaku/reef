@@ -415,6 +415,22 @@ func (p *Pipeline) CallLLM(
 		return ControlBreak, fmt.Errorf("LLM call failed after retries: %w", err)
 	}
 
+	// Repetition loop guard: detect when the LLM gets stuck in a degenerate
+	// repetition loop that consumes context budget without producing useful output.
+	// Caused by the model entering a toxic repetition state (e.g. 50+ copies of
+	// the same phrase), which silently fills the context window and leads to
+	// indefinite hang. We abort the turn immediately to preserve context budget.
+	if detectRepetitionLoop(exec.response.Content) {
+		logger.WarnCF("agent", "Repetition loop detected in LLM response, aborting turn",
+			map[string]any{
+				"agent_id":    ts.agent.ID,
+				"iteration":   iteration,
+				"content_len": len(exec.response.Content),
+			})
+		exec.finalContent = "检测到输出异常（重复循环），已自动中断。请重新提问。"
+		return ControlBreak, nil
+	}
+
 	// AfterLLM hook
 	if p.Hooks != nil {
 		llmResp, decision := p.Hooks.AfterLLM(turnCtx, &LLMHookResponse{
@@ -488,6 +504,44 @@ func (p *Pipeline) CallLLM(
 	}
 	llmResponseFields["latency_ms"] = time.Since(llmCallStart).Milliseconds()
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
+
+	// Token breakdown probe (token optimization research)
+	tokenBreakdown := computeTokenBreakdown(exec.callMessages, exec.providerToolDefs, ts.agent.ContextBuilder.latestCacheMetrics)
+	tokenBreakdown["agent_id"] = ts.agent.ID
+	tokenBreakdown["turn_id"] = ts.turnID
+	tokenBreakdown["iteration"] = iteration
+	if exec.response.Usage != nil {
+		tokenBreakdown["api_prompt_tokens"] = exec.response.Usage.PromptTokens
+		tokenBreakdown["api_completion_tokens"] = exec.response.Usage.CompletionTokens
+		tokenBreakdown["api_total_tokens"] = exec.response.Usage.TotalTokens
+	}
+	logger.InfoCF("agent", "Token breakdown", tokenBreakdown)
+
+	// DeepSeek V4 thinking mode compatibility: clean inline tool call markers
+	// (e.g. "[tool_use: name, args: {...}]") from Content. DeepSeek may emit
+	// these markers alongside structured ToolCalls; unconditionally strip them
+	// to avoid raw markers leaking to users or into cached history.
+	// Only promote extracted calls to structured ToolCalls when none exist.
+	if !exec.gracefulTerminal {
+		extracted, cleanContent := extractInlineToolCalls(exec.response.Content)
+		exec.response.Content = cleanContent
+		if len(extracted) > 0 && len(exec.response.ToolCalls) == 0 {
+			logger.InfoCF("agent", "Promoted extracted inline tool calls (no structured calls present)",
+				map[string]any{
+					"agent_id":   ts.agent.ID,
+					"iteration":  iteration,
+					"tool_count": len(extracted),
+				})
+			exec.response.ToolCalls = extracted
+		} else if len(extracted) > 0 {
+			logger.DebugCF("agent", "Cleaned inline tool call markers from content (structured calls present)",
+				map[string]any{
+					"agent_id":      ts.agent.ID,
+					"iteration":     iteration,
+					"markers_found": len(extracted),
+				})
+		}
+	}
 
 	// No-tool-call path: steering check and direct response
 	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
@@ -588,4 +642,253 @@ func (p *Pipeline) CallLLM(
 	}
 
 	return ControlToolLoop, nil
+}
+
+// extractInlineToolCalls parses inline tool call markers from LLM content text.
+// DeepSeek V4 thinking mode sometimes outputs tool calls as text markers like:
+//
+//	[tool_use: edit_file, args: {"new_text": "...", "old_text": "...", "path": "..."}]
+//
+// This function extracts them into structured ToolCall objects and returns the
+// remaining content with the markers removed.
+func extractInlineToolCalls(content string) ([]providers.ToolCall, string) {
+	if content == "" {
+		return nil, content
+	}
+
+	var toolCalls []providers.ToolCall
+	var cleanBuf strings.Builder
+	i := 0
+	for i < len(content) {
+		// Look for [tool_use:
+		if strings.HasPrefix(content[i:], "[tool_use:") {
+			// Find the matching closing bracket
+			start := i + len("[tool_use:")
+			// Parse: tool_name, args: {json}]
+			rest := content[start:]
+			commaIdx := strings.Index(rest, ",")
+			if commaIdx == -1 {
+				cleanBuf.WriteByte(content[i])
+				i++
+				continue
+			}
+			toolName := strings.TrimSpace(rest[:commaIdx])
+
+			argsStart := strings.Index(rest, "args:")
+			if argsStart == -1 {
+				cleanBuf.WriteByte(content[i])
+				i++
+				continue
+			}
+			argsSection := rest[argsStart+len("args:"):]
+
+			// Find the JSON object by tracking brace depth
+			trimmed := strings.TrimSpace(argsSection)
+			if len(trimmed) == 0 || trimmed[0] != '{' {
+				cleanBuf.WriteByte(content[i])
+				i++
+				continue
+			}
+
+			depth := 0
+			jsonEnd := -1
+			for j := 0; j < len(trimmed); j++ {
+				switch trimmed[j] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+					if depth == 0 {
+						jsonEnd = j + 1
+						goto foundJSON
+					}
+				case '"':
+					// Skip string content
+					k := j + 1
+					for k < len(trimmed) {
+						if trimmed[k] == '\\' && k+1 < len(trimmed) {
+							k += 2
+							continue
+						}
+						if trimmed[k] == '"' {
+							j = k
+							break
+						}
+						k++
+					}
+				}
+			}
+		foundJSON:
+
+			if jsonEnd == -1 {
+				cleanBuf.WriteByte(content[i])
+				i++
+				continue
+			}
+
+			jsonStr := trimmed[:jsonEnd]
+			var args map[string]any
+			if err := json.Unmarshal([]byte(jsonStr), &args); err != nil {
+				// Failed to parse JSON, skip this marker
+				cleanBuf.WriteByte(content[i])
+				i++
+				continue
+			}
+
+			// Find the closing ] after the JSON
+			afterJSON := trimmed[jsonEnd:]
+			closeBracket := strings.Index(afterJSON, "]")
+			totalLen := start - i + commaIdx + argsStart + len("args:") + len(argsSection) - len(trimmed) + jsonEnd + closeBracket + 1
+
+			tc := providers.ToolCall{
+				ID:   fmt.Sprintf("inline_%d", len(toolCalls)),
+				Name: toolName,
+				Function: &providers.FunctionCall{
+					Name:      toolName,
+					Arguments: jsonStr,
+				},
+				Arguments: args,
+			}
+			toolCalls = append(toolCalls, tc)
+
+			// Skip past the entire [tool_use: ... ] block
+			// Calculate how many chars to skip from position i
+			i += totalLen
+			if i > len(content) {
+				i = len(content)
+			}
+			continue
+		}
+
+		cleanBuf.WriteByte(content[i])
+		i++
+	}
+
+	cleanContent := strings.TrimSpace(cleanBuf.String())
+	return toolCalls, cleanContent
+}
+
+// computeTokenBreakdown analyzes callMessages to produce a categorized token
+// distribution report for the token optimization research initiative.
+// Categories: static system, dynamic context, summary, history, tool defs, reasoning.
+func computeTokenBreakdown(
+	msgs []providers.Message,
+	toolDefs []providers.ToolDefinition,
+	cm CacheMetrics,
+) map[string]any {
+	breakdown := map[string]any{}
+
+	// 1. System message token breakdown (now purely static after P1+P2).
+	// Dynamic runtime/summary are in the last user message, not in system.
+	if len(msgs) > 0 && msgs[0].Role == "system" {
+		sysContent := msgs[0].Content
+		breakdown["system_total_chars"] = len(sysContent)
+		breakdown["system_total_tokens"] = EstimateMessageTokens(msgs[0])
+
+		// After P1+P2, the entire system message is static.
+		// CacheMetrics gives us the authoritative breakdown.
+		breakdown["static_chars"] = cm.StaticChars
+		breakdown["static_tokens"] = cm.StaticChars * 2 / 5
+		breakdown["dynamic_chars"] = cm.DynamicChars
+		breakdown["dynamic_tokens"] = cm.DynamicChars * 2 / 5
+		breakdown["summary_chars"] = 0 // summary is part of dynamic suffix now
+		breakdown["summary_tokens"] = 0
+
+		if len(sysContent) > 0 {
+			breakdown["static_pct"] = cm.StaticChars * 100 / len(sysContent)
+			breakdown["dynamic_pct"] = cm.DynamicChars * 100 / len(sysContent)
+			breakdown["summary_pct"] = 0
+		}
+	} else {
+		breakdown["system_total_chars"] = 0
+		breakdown["system_total_tokens"] = 0
+		breakdown["static_chars"] = 0
+		breakdown["static_tokens"] = 0
+		breakdown["dynamic_chars"] = 0
+		breakdown["dynamic_tokens"] = 0
+		breakdown["summary_chars"] = 0
+		breakdown["summary_tokens"] = 0
+	}
+
+	// 2. History messages token count
+	historyTokens := 0
+	reasoningTokens := 0
+	historyCount := 0
+	for i := 1; i < len(msgs)-1; i++ { // skip system and last user
+		msg := msgs[i]
+		historyTokens += EstimateMessageTokens(msg)
+		if len(msg.ReasoningContent) > 0 {
+			reasoningTokens += len(msg.ReasoningContent) * 2 / 5
+		}
+		historyCount++
+	}
+	breakdown["history_count"] = historyCount
+	breakdown["history_tokens"] = historyTokens
+	breakdown["reasoning_tokens"] = reasoningTokens
+
+	// 3. Tool definitions
+	toolDefsTokens := EstimateToolDefsTokens(toolDefs)
+	breakdown["tool_defs_count"] = len(toolDefs)
+	breakdown["tool_defs_tokens"] = toolDefsTokens
+
+	// 4. Current user message
+	if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" {
+		breakdown["user_msg_tokens"] = EstimateMessageTokens(msgs[len(msgs)-1])
+	}
+
+	// 5. Totals
+	totalChars := 0
+	for _, m := range msgs {
+		totalChars += len(m.Content)
+	}
+	totalTokens := historyTokens + toolDefsTokens
+	if len(msgs) > 0 {
+		totalTokens += EstimateMessageTokens(msgs[0]) // system
+		if len(msgs) > 1 && msgs[len(msgs)-1].Role == "user" {
+			totalTokens += EstimateMessageTokens(msgs[len(msgs)-1])
+		}
+	}
+	breakdown["total_chars"] = totalChars
+	breakdown["total_tokens_est"] = totalTokens
+
+	// 6. Cache hit estimate from authoritative CacheMetrics (P1+P2+P5).
+	breakdown["cacheable_prefix_tokens_est"] = cm.StaticChars * 2 / 5
+	if totalTokens > 0 {
+		breakdown["cacheable_pct_est"] = (cm.StaticChars * 2 / 5) * 100 / totalTokens
+	}
+	breakdown["cache_hit_estimate"] = fmt.Sprintf("%.1f%%", cm.CacheHitEstimate*100)
+	breakdown["tool_result_chars"] = cm.ToolResultChars
+	breakdown["reasoning_chars"] = cm.ReasoningChars
+
+	return breakdown
+}
+
+// detectRepetitionLoop checks whether an LLM response has entered a
+// pathological repetition state — the same non-empty line repeated
+// consecutively 8+ times. This is a leading indicator of "toxic
+// repetition" that silently fills the context window without producing
+// useful tool calls or content, eventually causing an indefinite hang.
+func detectRepetitionLoop(content string) bool {
+	lines := strings.Split(content, "\n")
+	if len(lines) < 8 {
+		return false
+	}
+	streak := 0
+	var lastLine string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if trimmed == lastLine {
+			streak++
+			if streak >= 7 { // 8 consecutive identical lines
+				return true
+			}
+		} else {
+			streak = 1
+			lastLine = trimmed
+		}
+	}
+	return false
 }

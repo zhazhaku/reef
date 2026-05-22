@@ -28,6 +28,7 @@ type AgentInstance struct {
 	Fallbacks                 []string
 	Workspace                 string
 	MaxIterations             int
+	TurnTimeoutMinutes        int
 	MaxTokens                 int
 	Temperature               float64
 	ThinkingLevel             ThinkingLevel
@@ -108,6 +109,10 @@ func NewAgentInstance(
 				map[string]any{"error": err.Error()})
 		} else {
 			toolsRegistry.Register(execTool)
+			// Register reef_execute as a sandboxed alternative to exec.
+			// It delegates to exec but the ToolSandboxHook (registered in agent_init.go)
+			// intercepts the result and replaces it with a summary.
+			toolsRegistry.Register(tools.NewReefExecuteTool(toolsRegistry))
 		}
 	}
 
@@ -144,6 +149,11 @@ func NewAgentInstance(
 	maxIter := defaults.MaxToolIterations
 	if maxIter == 0 {
 		maxIter = 20
+	}
+
+	turnTimeoutMinutes := defaults.TurnTimeoutMinutes
+	if turnTimeoutMinutes == 0 {
+		turnTimeoutMinutes = 10 // default 10 minutes
 	}
 
 	maxTokens := defaults.MaxTokens
@@ -229,6 +239,7 @@ func NewAgentInstance(
 		Fallbacks:                 fallbacks,
 		Workspace:                 workspace,
 		MaxIterations:             maxIter,
+		TurnTimeoutMinutes:        turnTimeoutMinutes,
 		MaxTokens:                 maxTokens,
 		Temperature:               temperature,
 		ThinkingLevel:             thinkingLevel,

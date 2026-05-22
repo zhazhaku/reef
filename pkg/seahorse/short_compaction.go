@@ -212,7 +212,7 @@ func (e *CompactionEngine) compactLeaf(ctx context.Context, convID int64, force 
 			chunkEnd = i
 			accumTokens += items[i].TokenCount
 			// Stop accumulating once we reach the token budget
-			if accumTokens >= LeafChunkTokens {
+			if accumTokens >= LeafChunkTokens && (chunkEnd-chunkStart+1) >= LeafMinFanout {
 				break
 			}
 		} else {

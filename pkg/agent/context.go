@@ -17,8 +17,8 @@ import (
 	"github.com/zhazhaku/reef/pkg/config"
 	"github.com/zhazhaku/reef/pkg/logger"
 	"github.com/zhazhaku/reef/pkg/providers"
+	"github.com/zhazhaku/reef/pkg/providers/messageutil"
 	"github.com/zhazhaku/reef/pkg/skills"
-	"github.com/zhazhaku/reef/pkg/utils"
 )
 
 type ContextBuilder struct {
@@ -45,6 +45,10 @@ type ContextBuilder struct {
 	// build time. This catches nested file creations/deletions/mtime changes
 	// that may not update the top-level skill root directory mtime.
 	skillFilesAtCache map[string]time.Time
+
+	// latestCacheMetrics holds the most recent token/cache breakdown from
+	// BuildMessagesFromPrompt, made available to computeContextUsage.
+	latestCacheMetrics CacheMetrics
 }
 
 func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuilder {
@@ -134,7 +138,19 @@ Your workspace is at: %s
 
 3. **Memory** - When interacting with me if something seems memorable, update %s/memory/MEMORY.md
 
-4. **Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.`,
+4. **Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.
+
+5. **Context Conservation** — Your context window is precious and shared across all turns. Tool outputs occupy the same window as conversation history and instructions. When the window fills, early important information is lost (Lost in the Middle problem).
+
+   Rules:
+   a) For reading 3+ files, write a script with exec instead of reading each file inline.
+   b) For searching patterns in large files, use exec with grep/awk/jq instead of read_file then analyze.
+   c) For statistical analysis, use exec with jq/python/awk instead of read_file then manually count.
+   d) For searching prior tool outputs, use short_grep. For recovering full outputs, use short_expand.
+   e) When exec returns data, prefer head/tail/grep in the command itself to limit output size.
+
+   Before: read_file(large.json) → 20KB in context
+   After:  exec("jq '.errors[] | .message' large.json | head -20") → 1KB`,
 		version, workspacePath, workspacePath, workspacePath, workspacePath, workspacePath)
 }
 
@@ -152,7 +168,7 @@ func formatToolDiscoveryRule(useBM25, useRegex bool) string {
 	}
 
 	return fmt.Sprintf(
-		`5. **Tool Discovery** - Your visible tools are limited to save memory, but a vast hidden library exists. If you lack the right tool for a task, BEFORE giving up, you MUST search using the %s tool. Do not refuse a request unless the search returns nothing. Found tools will temporarily unlock for your next turn.`,
+		`6. **Tool Discovery** - Your visible tools are limited to save memory, but a vast hidden library exists. If you lack the right tool for a task, BEFORE giving up, you MUST search using the %s tool. Do not refuse a request unless the search returns nothing. Found tools will temporarily unlock for your next turn.`,
 		strings.Join(toolNames, " or "),
 	)
 }
@@ -666,41 +682,10 @@ func (cb *ContextBuilder) BuildMessages(
 func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []providers.Message {
 	messages := []providers.Message{}
 
-	// The static part (identity, bootstrap, skills, memory) is cached locally to
-	// avoid repeated file I/O and string building on every call (fixes issue #607).
-	// Dynamic parts (time, session, summary) are appended per request.
-	// Everything is sent as a single system message for provider compatibility:
-	// - Anthropic adapter extracts messages[0] (Role=="system") and maps its content
-	//   to the top-level "system" parameter in the Messages API request. A single
-	//   contiguous system block makes this extraction straightforward.
-	// - Codex maps only the first system message to its instructions field.
-	// - OpenAI-compat passes messages through as-is.
 	staticPrompt := cb.BuildSystemPromptWithCache()
 
-	// Build short dynamic context (time, runtime, session) — changes per request
-	dynamicCtx := cb.buildDynamicContext(req.Channel, req.ChatID, req.SenderID, req.SenderDisplayName)
-
-	// Compose a single system message: static (cached) + dynamic + optional summary.
-	// Keeping all system content in one message ensures every provider adapter can
-	// extract it correctly (Anthropic adapter -> top-level system param,
-	// Codex -> instructions field).
-	//
-	// SystemParts carries the same content as structured blocks so that
-	// cache-aware adapters (Anthropic) can set per-block cache_control.
-	// The static block is marked "ephemeral" — its prefix hash is stable
-	// across requests, enabling LLM-side KV cache reuse.
-	stringParts := []string{staticPrompt}
-
-	contentBlocks := []providers.ContentBlock{
-		promptContentBlock(PromptPart{
-			ID:      "kernel.static",
-			Layer:   PromptLayerKernel,
-			Slot:    PromptSlotIdentity,
-			Source:  PromptSource{ID: PromptSourceKernel, Name: "static"},
-			Content: staticPrompt,
-		}, &providers.CacheControl{Type: "ephemeral"}),
-	}
-
+	// Collect overlay parts (active skills, prompt contributors, etc.)
+	// that belong in the static system prefix.
 	promptParts := append([]PromptPart(nil), req.Overlays...)
 	promptParts = append(promptParts, cb.buildActiveSkillsPromptParts(req.ActiveSkills)...)
 	if contributedParts, err := cb.promptRegistryOrDefault().Collect(context.Background(), req); err != nil {
@@ -711,103 +696,128 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 		promptParts = append(promptParts, contributedParts...)
 	}
 
-	if len(promptParts) > 0 {
-		for _, overlay := range sortPromptParts(promptParts) {
-			if strings.TrimSpace(overlay.Content) == "" {
-				continue
-			}
-			if err := cb.promptRegistryOrDefault().ValidatePart(overlay); err != nil {
-				logger.WarnCF("agent", "Skipping invalid prompt overlay", map[string]any{
-					"id":     overlay.ID,
-					"layer":  overlay.Layer,
-					"slot":   overlay.Slot,
-					"source": overlay.Source.ID,
-					"error":  err.Error(),
-				})
-				continue
-			}
-			stringParts = append(stringParts, overlay.Content)
-			contentBlocks = append(contentBlocks, promptContentBlock(overlay, nil))
+	// Build the stable system prefix: static (cached) identity + stable overlays only.
+	// Dynamic parts (time, runtime, summary) are moved OUT to separate messages
+	// so they don't pollute the prefix and break DeepSeek's automatic context caching.
+	staticStringParts := []string{staticPrompt}
+	staticContentBlocks := []providers.ContentBlock{
+		promptContentBlock(PromptPart{
+			ID:      "kernel.static",
+			Layer:   PromptLayerKernel,
+			Slot:    PromptSlotIdentity,
+			Source:  PromptSource{ID: PromptSourceKernel, Name: "static"},
+			Content: staticPrompt,
+		}, &providers.CacheControl{Type: "ephemeral"}),
+	}
+
+	var dynamicParts []PromptPart
+
+	// Separate stable overlays from dynamic ones.
+	// Dynamic = runtime context and summary (they change every turn).
+	for _, overlay := range sortPromptParts(promptParts) {
+		if strings.TrimSpace(overlay.Content) == "" {
+			continue
 		}
+		if err := cb.promptRegistryOrDefault().ValidatePart(overlay); err != nil {
+			logger.WarnCF("agent", "Skipping invalid prompt overlay", map[string]any{
+				"id":     overlay.ID,
+				"layer":  overlay.Layer,
+				"slot":   overlay.Slot,
+				"source": overlay.Source.ID,
+				"error":  err.Error(),
+			})
+			continue
+		}
+
+		// Runtime and summary are dynamic (change per turn) — move them to
+		// the dynamic suffix so they don't break DeepSeek prefix caching.
+		if overlay.Source.ID == PromptSourceRuntime || overlay.Source.ID == PromptSourceSummary {
+			dynamicParts = append(dynamicParts, overlay)
+			continue
+		}
+
+		// All other overlays are stable and stay in the system prefix.
+		staticStringParts = append(staticStringParts, overlay.Content)
+		staticContentBlocks = append(staticContentBlocks, promptContentBlock(overlay, nil))
 	}
 
-	runtimePart := PromptPart{
-		ID:      "context.runtime",
-		Layer:   PromptLayerContext,
-		Slot:    PromptSlotRuntime,
-		Source:  PromptSource{ID: PromptSourceRuntime, Name: "runtime"},
-		Title:   "runtime context",
-		Content: dynamicCtx,
-		Stable:  false,
-		Cache:   PromptCacheNone,
-	}
-	stringParts = append(stringParts, dynamicCtx)
-	contentBlocks = append(contentBlocks, promptContentBlock(runtimePart, nil))
+	// Assemble the stable system message (always the same across turns).
+	staticSystemPrompt := strings.Join(staticStringParts, "\n\n---\n\n")
 
+	// Build dynamic context string for injection after history.
+	dynamicCtx := cb.buildDynamicContext(req.Channel, req.ChatID, req.SenderID, req.SenderDisplayName)
+
+	var dynamicStrings []string
+	dynamicStrings = append(dynamicStrings, dynamicCtx)
+	for _, dp := range dynamicParts {
+		dynamicStrings = append(dynamicStrings, dp.Content)
+	}
 	if req.Summary != "" {
-		summaryPart := PromptPart{
-			ID:     "context.summary",
-			Layer:  PromptLayerContext,
-			Slot:   PromptSlotSummary,
-			Source: PromptSource{ID: PromptSourceSummary, Name: "context.summary"},
-			Title:  "context summary",
-			Content: fmt.Sprintf(
-				"CONTEXT_SUMMARY: The following is an approximate summary of prior conversation "+
-					"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n%s",
-				req.Summary),
-			Stable: false,
-			Cache:  PromptCacheNone,
-		}
-		stringParts = append(stringParts, summaryPart.Content)
-		contentBlocks = append(contentBlocks, promptContentBlock(summaryPart, nil))
+		summaryContent := fmt.Sprintf(
+			"CONTEXT_SUMMARY: The following is an approximate summary of prior conversation "+
+				"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n%s",
+			req.Summary)
+		dynamicStrings = append(dynamicStrings, summaryContent)
 	}
-
-	fullSystemPrompt := strings.Join(stringParts, "\n\n---\n\n")
-
-	// Log system prompt summary for debugging (debug mode only).
-	// Read cachedSystemPrompt under lock to avoid a data race with
-	// concurrent InvalidateCache / BuildSystemPromptWithCache writes.
-	cb.systemPromptMutex.RLock()
-	isCached := cb.cachedSystemPrompt != ""
-	cb.systemPromptMutex.RUnlock()
 
 	logger.DebugCF("agent", "System prompt built",
 		map[string]any{
-			"static_chars":  len(staticPrompt),
+			"static_chars":  len(staticSystemPrompt),
 			"dynamic_chars": len(dynamicCtx),
-			"total_chars":   len(fullSystemPrompt),
 			"has_summary":   req.Summary != "",
 			"overlays":      len(req.Overlays),
-			"cached":        isCached,
+			"cached":        true,
 		})
 
-	// Log preview of system prompt (avoid logging huge content)
-	preview := utils.Truncate(fullSystemPrompt, 500)
-	logger.DebugCF("agent", "System prompt preview",
-		map[string]any{
-			"preview": preview,
-		})
-
-	history := sanitizeHistoryForProvider(req.History)
-
-	// Single system message containing all context — compatible with all providers.
-	// SystemParts enables cache-aware adapters to set per-block cache_control;
-	// Content is the concatenated fallback for adapters that don't read SystemParts.
+	// 1. Stable system message: pure static prefix → DeepSeek will cache this!
 	messages = append(messages, providers.Message{
 		Role:        "system",
-		Content:     fullSystemPrompt,
-		SystemParts: contentBlocks,
+		Content:     staticSystemPrompt,
+		SystemParts: staticContentBlocks,
 	})
 
-	// Add conversation history
+	// 2. Conversation history
+	history := sanitizeHistoryForProvider(req.History)
 	messages = append(messages, history...)
 
-	// Add current user message. Media-only turns must still be preserved so
-	// multimodal providers receive the uploaded image even when the user sends
-	// no accompanying text.
-	if strings.TrimSpace(req.CurrentMessage) != "" || len(req.Media) > 0 {
-		messages = append(messages, userPromptMessage(req.CurrentMessage, req.Media))
+	// 3. Current user message with dynamic context APPENDED at the end.
+	userContent := req.CurrentMessage
+	if len(dynamicStrings) > 0 {
+		dynamicSuffix := "\n\n<CONTEXT>\n" + strings.Join(dynamicStrings, "\n\n") + "\n</CONTEXT>"
+		userContent += dynamicSuffix
 	}
+	if strings.TrimSpace(userContent) != "" || len(req.Media) > 0 {
+		messages = append(messages, userPromptMessage(userContent, req.Media))
+	}
+
+	// 4. Calculate token/cache breakdown for observability (P5).
+	historyChars := 0
+	toolResultChars := 0
+	reasoningChars := 0
+	for _, m := range history {
+		if m.Role == "tool" {
+			toolResultChars += len(m.Content)
+		} else if m.Role == "assistant" {
+			historyChars += len(m.Content)
+			reasoningChars += len(m.ReasoningContent)
+		} else {
+			historyChars += len(m.Content)
+		}
+	}
+	dynamicSuffixChars := 0
+	if len(dynamicStrings) > 0 {
+		suffix := "\n\n<CONTEXT>\n" + strings.Join(dynamicStrings, "\n\n") + "\n</CONTEXT>"
+		dynamicSuffixChars = len(suffix)
+	}
+
+	cm := computeCacheMetrics(
+		len(staticSystemPrompt),
+		dynamicSuffixChars,
+		historyChars,
+		toolResultChars,
+		reasoningChars,
+	)
+	cb.latestCacheMetrics = cm
 
 	return messages
 }
@@ -817,7 +827,16 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		return history
 	}
 
+	// Fast pre-pass: trim leading orphan tool-call pairs so the main loop
+	// starts from a clean prefix. This avoids dozens of "Dropping" debug
+	// log lines and the associated per-message switch/case overhead.
+	history = messageutil.TrimLeadingOrphans(history)
+	if len(history) == 0 {
+		return history
+	}
+
 	sanitized := make([]providers.Message, 0, len(history))
+	droppedCount := 0
 	for _, msg := range history {
 		switch msg.Role {
 		case "system":
@@ -825,12 +844,12 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 			// constructs its own single system message (static + dynamic +
 			// summary); extra system messages would break providers that
 			// only accept one (Anthropic, Codex).
-			logger.DebugCF("agent", "Dropping system message from history", map[string]any{})
+			droppedCount++
 			continue
 
 		case "tool":
 			if len(sanitized) == 0 {
-				logger.DebugCF("agent", "Dropping orphaned leading tool message", map[string]any{})
+				droppedCount++
 				continue
 			}
 			// Walk backwards to find the nearest assistant message,
@@ -846,7 +865,7 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 				break
 			}
 			if !foundAssistant {
-				logger.DebugCF("agent", "Dropping orphaned tool message", map[string]any{})
+				droppedCount++
 				continue
 			}
 			sanitized = append(sanitized, msg)
@@ -854,16 +873,12 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {
 				if len(sanitized) == 0 {
-					logger.DebugCF("agent", "Dropping assistant tool-call turn at history start", map[string]any{})
+					droppedCount++
 					continue
 				}
 				prev := sanitized[len(sanitized)-1]
 				if prev.Role != "user" && prev.Role != "tool" {
-					logger.DebugCF(
-						"agent",
-						"Dropping assistant tool-call turn with invalid predecessor",
-						map[string]any{"prev_role": prev.Role},
-					)
+					droppedCount++
 					continue
 				}
 			}
@@ -872,6 +887,10 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		default:
 			sanitized = append(sanitized, msg)
 		}
+	}
+	if droppedCount > 0 {
+		logger.DebugCF("agent", "Sanitized history: dropped invalid messages",
+			map[string]any{"dropped": droppedCount})
 	}
 
 	// Second pass: ensure every assistant message with tool_calls has matching
@@ -908,42 +927,32 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 					break
 				}
 				if next.ToolCallID == "" {
-					logger.DebugCF("agent", "Dropping tool result without tool_call_id", map[string]any{})
 					continue
 				}
 				if _, ok := expected[next.ToolCallID]; !ok {
-					logger.DebugCF("agent", "Dropping unexpected tool result", map[string]any{
-						"tool_call_id": next.ToolCallID,
-					})
 					continue
 				}
 				if seenInBlock[next.ToolCallID] {
-					logger.DebugCF("agent", "Dropping duplicate tool result in tool block", map[string]any{
-						"tool_call_id": next.ToolCallID,
-					})
 					continue
 				}
 				seenInBlock[next.ToolCallID] = true
 				expected[next.ToolCallID] = true
+				// Truncate tool results to reduce token consumption.
+				// seahorse/JSONL store full content; truncation only
+				// affects the API request payload.
+				if toolName := resolveToolName(msg.ToolCalls, next.ToolCallID); toolName != "" {
+					next.Content = truncateToolResult(toolName, next.Content)
+				}
 				block = append(block, next)
 			}
 
 			allFound := !invalidToolCallID
 			if invalidToolCallID {
-				logger.DebugCF("agent", "Dropping assistant message with empty tool_call_id", map[string]any{})
+				continue
 			}
-			for toolCallID, found := range expected {
+			for _, found := range expected {
 				if !found {
 					allFound = false
-					logger.DebugCF(
-						"agent",
-						"Dropping assistant message with incomplete tool results",
-						map[string]any{
-							"missing_tool_call_id": toolCallID,
-							"expected_count":       len(expected),
-							"found_count":          len(block),
-						},
-					)
 					break
 				}
 			}
@@ -960,9 +969,6 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		}
 
 		if msg.Role == "tool" {
-			logger.DebugCF("agent", "Dropping orphaned tool message after validation", map[string]any{
-				"tool_call_id": msg.ToolCallID,
-			})
 			continue
 		}
 
@@ -1104,4 +1110,9 @@ func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 		"available": len(allSkills),
 		"names":     skillNames,
 	}
+}
+
+// Memory returns the agent's MemoryStore for external access (e.g., reflector).
+func (cb *ContextBuilder) Memory() *MemoryStore {
+	return cb.memory
 }

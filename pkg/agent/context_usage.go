@@ -51,6 +51,12 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// Used = history + system (includes summary) + tools
 	usedTokens := historyTokens + systemTokens + toolTokens
 
+	// Populate cache metrics from the most recent BuildMessagesFromPrompt output.
+	var cacheMetrics CacheMetrics
+	if agent.ContextBuilder != nil {
+		cacheMetrics = agent.ContextBuilder.latestCacheMetrics
+	}
+
 	// Effective budget = contextWindow minus output reserve (maxTokens)
 	effectiveWindow := contextWindow - agent.MaxTokens
 	if effectiveWindow < 0 {
@@ -74,5 +80,44 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 		TotalTokens:      contextWindow,
 		CompressAtTokens: compressAt,
 		UsedPercent:      usedPercent,
+		StaticChars:      cacheMetrics.StaticChars,
+		DynamicChars:     cacheMetrics.DynamicChars,
+		HistoryChars:     cacheMetrics.HistoryChars,
+		ToolResultChars:  cacheMetrics.ToolResultChars,
+		ReasoningChars:   cacheMetrics.ReasoningChars,
+		CacheHitEstimate: cacheMetrics.CacheHitEstimate,
+	}
+}
+
+// CacheMetrics holds DeepSeek prefix-cache estimation fields.
+type CacheMetrics struct {
+	StaticChars  int
+	DynamicChars int
+	HistoryChars int
+	ToolResultChars int
+	ReasoningChars  int
+	CacheHitEstimate float64 // 0.0-1.0
+}
+
+// computeCacheMetrics estimates the fraction of input tokens that will hit
+// DeepSeek's automatic prefix cache. The static system prefix (stable across
+// turns) maps to cached tokens; dynamic suffix and tool results map to full-price.
+func computeCacheMetrics(
+	staticChars, dynamicChars, historyChars, toolResultChars, reasoningChars int,
+) CacheMetrics {
+	total := staticChars + dynamicChars + historyChars + toolResultChars + reasoningChars
+	if total == 0 {
+		return CacheMetrics{}
+	}
+	// Static system prefix is guaranteed cache hit (no dynamic content mixed in).
+	// History may partially hit but we conservatively count only the static prefix.
+	cacheHit := float64(staticChars) / float64(total)
+	return CacheMetrics{
+		StaticChars:     staticChars,
+		DynamicChars:    dynamicChars,
+		HistoryChars:    historyChars,
+		ToolResultChars: toolResultChars,
+		ReasoningChars:  reasoningChars,
+		CacheHitEstimate: cacheHit,
 	}
 }

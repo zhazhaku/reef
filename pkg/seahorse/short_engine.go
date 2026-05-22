@@ -34,8 +34,9 @@ type CompleteOptions struct {
 
 // IngestResult is the result of message ingestion.
 type IngestResult struct {
-	MessageCount int `json:"messageCount"`
-	TokenCount   int `json:"tokenCount"`
+	MessageCount int     `json:"messageCount"`
+	TokenCount   int     `json:"tokenCount"`
+	MessageIDs   []int64 `json:"messageIds,omitempty"`
 }
 
 // AssembleInput controls context assembly.
@@ -277,6 +278,7 @@ func (e *Engine) Ingest(ctx context.Context, sessionKey string, messages []Messa
 	return &IngestResult{
 		MessageCount: len(messages),
 		TokenCount:   totalTokens,
+		MessageIDs:   msgIDs,
 	}, nil
 }
 

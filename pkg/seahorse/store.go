@@ -13,6 +13,11 @@ type Store struct {
 	db *sql.DB
 }
 
+// DB returns the underlying SQL database.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // CreateSummaryInput holds parameters for creating a summary.
 type CreateSummaryInput struct {
 	ConversationID       int64
@@ -1130,13 +1135,23 @@ func (s *Store) resequenceContextItemsTx(ctx context.Context, tx *sql.Tx, convID
 }
 
 // GetContextTokenCount returns total token count for all items in context.
+// Legacy compensation: messages ingested before the tokenizer switch from
+// chars*2/5 to chars*2/7 store over-estimated TokenCount. We apply a 5/7
+// factor here so CompactUntilUnder doesn't over-compress based on stale
+// estimates. New messages (already chars*2/7) become slightly under-counted
+// which is safe: it means compaction is a bit less aggressive, not more.
 func (s *Store) GetContextTokenCount(ctx context.Context, convID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
 		"SELECT COALESCE(SUM(token_count), 0) FROM context_items WHERE conversation_id = ?",
 		convID,
 	).Scan(&count)
-	return count, err
+	if err != nil {
+		return 0, err
+	}
+	// Compensate for legacy tokenizer (chars*2/5 → chars*2/7).
+	// Ratio: (2/7)/(2/5) = 5/7 ≈ 0.714
+	return count * 5 / 7, nil
 }
 
 // GetMaxOrdinal returns the highest ordinal in context_items for a conversation.

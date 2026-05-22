@@ -482,8 +482,10 @@ func TestEstimateMessageTokens_LargeArguments(t *testing.T) {
 	}
 
 	tokens := EstimateMessageTokens(msg)
-	// 5000+ chars → at least 2000 tokens with the 2.5 char/token heuristic
-	if tokens < 2000 {
+	// 5000+ chars → at least 1400 tokens with the calibrated 2/7 heuristic
+	// (was 2/5=2000; recalibrated 2026-05 to 2/7≈1428 based on 400+ turns
+	// against DeepSeek V4 Pro API data, closing 25-40% over-count gap).
+	if tokens < 1400 {
 		t.Errorf("large tool call arguments should produce significant token count, got %d", tokens)
 	}
 }

@@ -171,10 +171,21 @@ func TestProviderToSeahorseMessageWithMedia(t *testing.T) {
 }
 
 func TestProviderToSeahorseMessageWithReasoning(t *testing.T) {
+	// Reasoning is only preserved for tool-call messages (DeepSeek V4 rule).
+	// Non-tool-call messages have their reasoning stripped during seahorse ingestion.
 	msg := protocoltypes.Message{
 		Role:             "assistant",
 		Content:          "response text",
 		ReasoningContent: "I thought about this carefully",
+		ToolCalls: []protocoltypes.ToolCall{{
+			ID:   "tc1",
+			Type: "function",
+			Name: "exec",
+			Function: &protocoltypes.FunctionCall{
+				Name:      "exec",
+				Arguments: `{"cmd":"echo hi"}`,
+			},
+		}},
 	}
 
 	result := providerToSeahorseMessage(msg)
@@ -190,6 +201,7 @@ func TestSeahorseToProviderMessagesWithReasoning(t *testing.T) {
 				Role:             "assistant",
 				Content:          "response",
 				ReasoningContent: "thinking process",
+				// No Parts → no tool_calls → reasoning should be stripped
 			},
 		},
 	}
@@ -198,8 +210,9 @@ func TestSeahorseToProviderMessagesWithReasoning(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(messages))
 	}
-	if messages[0].ReasoningContent != "thinking process" {
-		t.Errorf("ReasoningContent = %q, want 'thinking process'", messages[0].ReasoningContent)
+	// DeepSeek V4 rule: reasoning_content should be stripped for non-tool-call messages.
+	if messages[0].ReasoningContent != "" {
+		t.Errorf("ReasoningContent = %q, want empty (stripped for non-tool-call messages)", messages[0].ReasoningContent)
 	}
 }
 

@@ -103,8 +103,8 @@ func TestBuildMessagesFromPrompt_IncludesSystemPromptOverlay(t *testing.T) {
 	if !strings.Contains(messages[0].Content, "Use child-only system instructions.") {
 		t.Fatalf("system prompt missing overlay: %q", messages[0].Content)
 	}
-	if messages[1].Role != "user" || messages[1].Content != "do child task" {
-		t.Fatalf("messages[1] = %#v, want user task", messages[1])
+	if messages[1].Role != "user" || !strings.HasPrefix(messages[1].Content, "do child task") {
+		t.Fatalf("messages[1] = %#v, want user message starting with 'do child task'", messages[1])
 	}
 }
 
@@ -121,8 +121,10 @@ func TestBuildMessagesFromPrompt_AttachesInternalPromptMetadata(t *testing.T) {
 	}
 
 	system := messages[0]
-	if len(system.SystemParts) < 3 {
-		t.Fatalf("system parts len = %d, want at least 3", len(system.SystemParts))
+	// SystemParts now only contains the static kernel block.
+	// Dynamic parts (runtime, summary) moved to user message for prefix cache optimization.
+	if len(system.SystemParts) < 1 {
+		t.Fatalf("system parts len = %d, want at least 1", len(system.SystemParts))
 	}
 	if system.SystemParts[0].PromptLayer != string(PromptLayerKernel) ||
 		system.SystemParts[0].PromptSlot != string(PromptSlotIdentity) ||
@@ -130,26 +132,16 @@ func TestBuildMessagesFromPrompt_AttachesInternalPromptMetadata(t *testing.T) {
 		t.Fatalf("static system metadata = %#v, want kernel identity", system.SystemParts[0])
 	}
 
-	var hasRuntime, hasSummary bool
-	for _, part := range system.SystemParts {
-		switch part.PromptSource {
-		case string(PromptSourceRuntime):
-			hasRuntime = true
-			if part.CacheControl != nil {
-				t.Fatalf("runtime cache control = %#v, want nil", part.CacheControl)
-			}
-		case string(PromptSourceSummary):
-			hasSummary = true
-			if part.CacheControl != nil {
-				t.Fatalf("summary cache control = %#v, want nil", part.CacheControl)
-			}
-		}
+	// Check that user message contains runtime and summary context
+	userContent := messages[1].Content
+	if !strings.Contains(userContent, "<CONTEXT>") {
+		t.Fatalf("user message missing <CONTEXT> block: %q", userContent)
 	}
-	if !hasRuntime {
-		t.Fatal("system parts missing runtime prompt metadata")
+	if !strings.Contains(userContent, "Current Time") {
+		t.Fatalf("user message missing runtime context: %q", userContent)
 	}
-	if !hasSummary {
-		t.Fatal("system parts missing summary prompt metadata")
+	if !strings.Contains(userContent, "prior context") {
+		t.Fatalf("user message missing summary: %q", userContent)
 	}
 
 	user := messages[1]

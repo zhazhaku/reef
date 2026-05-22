@@ -56,5 +56,10 @@ func isVisionUnsupportedError(err error) bool {
 		return true
 	}
 
+	// DeepSeek returns "unknown variant image_url, expected text or tool_call"
+	if strings.Contains(msg, "unknown variant image_url") {
+		return true
+	}
+
 	return false
 }

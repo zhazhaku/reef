@@ -136,6 +136,8 @@ func runSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_task_episodes_type ON task_episodes(event_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_episodes_ts ON task_episodes(timestamp)`,
 
+		// --- Hermes conversation mode tables (created below in migration) ---
+
 		// Drop old triggers before creating new ones so existing DBs get updated bodies.
 		// (CREATE TRIGGER IF NOT EXISTS does NOT replace an existing trigger body.)
 		`DROP TRIGGER IF EXISTS summaries_ai`,
@@ -144,6 +146,32 @@ func runSchema(db *sql.DB) error {
 		`DROP TRIGGER IF EXISTS messages_ai`,
 		`DROP TRIGGER IF EXISTS messages_ad`,
 		`DROP TRIGGER IF EXISTS messages_au`,
+
+		// Migrate Hermes tables from INTEGER to TEXT conversation_id.
+		// SQLite does not support ALTER COLUMN type changes, so we drop
+		// and recreate. This is safe because these tables contain runtime
+		// state only (mode switches and workflow sessions).
+		`DROP TABLE IF EXISTS conversation_mode`,
+		`DROP TABLE IF EXISTS hermes_workflow_sessions`,
+		`CREATE TABLE IF NOT EXISTS conversation_mode (
+			conversation_id TEXT PRIMARY KEY,
+			mode            TEXT NOT NULL DEFAULT 'chat',
+			updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS hermes_workflow_sessions (
+			conversation_id  TEXT PRIMARY KEY,
+			task_id          TEXT NOT NULL,
+			phase            TEXT NOT NULL DEFAULT 'idle',
+			task_profile     TEXT,
+			current_round    INTEGER DEFAULT 0,
+			max_rounds       INTEGER DEFAULT 5,
+			directions       TEXT,
+			converge_streak  INTEGER DEFAULT 0,
+			selected_clients TEXT,
+			task_boards      TEXT,
+			created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
 
 		// FTS5 triggers to keep summaries_fts in sync with summaries table
 		`CREATE TRIGGER summaries_ai AFTER INSERT ON summaries BEGIN

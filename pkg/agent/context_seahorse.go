@@ -4,8 +4,12 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/zhazhaku/reef/pkg/logger"
 	"github.com/zhazhaku/reef/pkg/providers"
@@ -62,6 +66,12 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	}
 
 	return mgr, nil
+}
+
+// DB returns the underlying SQLite database for shared use by other
+// components (e.g., ModeStore for per-conversation mode persistence).
+func (m *seahorseContextManager) DB() *sql.DB {
+	return m.engine.GetRetrieval().Store().DB()
 }
 
 // providerToCompleteFn wraps providers.LLMProvider as a seahorse.CompleteFn.
@@ -128,9 +138,16 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 		return nil
 	}
 
-	// For retry (LLM overflow), use aggressive CompactUntilUnder to guarantee
-	// context shrinks below budget (spec lines ~1410).
-	if req.Reason == ContextCompressReasonRetry && req.Budget > 0 {
+	// Create checkpoint before compaction to preserve active context.
+	// Scans recent assistant messages for files/tasks/decisions so the
+	// LLM doesn't forget what it was doing after compression kicks in.
+	m.createAndInjectCheckpoint(ctx, req.SessionKey)
+
+	// For retry (LLM overflow) or proactive (pre-LLM budget check),
+	// use CompactUntilUnder to guarantee context shrinks below budget.
+	// Plain Compact() treats Budget as advisory only and may skip compression
+	// when its own tokenizer disagrees with our estimate.
+	if req.Budget > 0 && (req.Reason == ContextCompressReasonRetry || req.Reason == ContextCompressReasonProactive) {
 		_, err := m.engine.CompactUntilUnder(ctx, req.SessionKey, req.Budget)
 		return err
 	}
@@ -140,6 +157,186 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 		Budget: &req.Budget,
 	})
 	return err
+}
+
+// createAndInjectCheckpoint scans recent assistant messages for active
+// context (files, tasks, decisions) and persists a checkpoint summary
+// so the LLM retains critical awareness after compaction.
+func (m *seahorseContextManager) createAndInjectCheckpoint(ctx context.Context, sessionKey string) {
+	store := m.engine.GetRetrieval().Store()
+	conv, err := store.GetConversationBySessionKey(ctx, sessionKey)
+	if err != nil || conv == nil {
+		return
+	}
+
+	// Get recent messages (last 12, scanning up to 6 assistant messages)
+	msgs, err := store.GetMessages(ctx, conv.ConversationID, 30, 0)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	// Collect assistant messages from the tail
+	type extract struct {
+		files     []string
+		tasks     []string
+		decisions []string
+	}
+	var e extract
+	seenFiles := map[string]bool{}
+	scanned := 0
+
+	for i := len(msgs) - 1; i >= 0 && scanned < 8; i-- {
+		if msgs[i].Role != "assistant" {
+			continue
+		}
+		scanned++
+		content := msgs[i].Content
+		// Also check parts for tool_use details
+		for _, p := range msgs[i].Parts {
+			if p.Type == "tool_use" {
+				content += " " + p.Name + " " + p.Arguments
+			}
+		}
+
+		// Extract file references
+		for _, fn := range extractFilesFromContent(content) {
+			if !seenFiles[fn] {
+				e.files = append(e.files, fn)
+				seenFiles[fn] = true
+			}
+		}
+
+		// Extract tasks (TODO, FIXME, working on, need to)
+		e.tasks = append(e.tasks, extractTasksFromContent(content)...)
+
+		// Extract decisions
+		e.decisions = append(e.decisions, extractDecisionsFromContent(content)...)
+	}
+
+	if len(e.files) == 0 && len(e.tasks) == 0 && len(e.decisions) == 0 {
+		return
+	}
+
+	// Format checkpoint
+	var sb strings.Builder
+	sb.WriteString("## Checkpoint (pre-compaction)\\n\\n")
+	if len(e.files) > 0 {
+		sb.WriteString("**Active Files:**\\n")
+		for _, f := range e.files {
+			sb.WriteString("- `" + f + "`\\n")
+		}
+		sb.WriteString("\\n")
+	}
+	if len(e.tasks) > 0 {
+		sb.WriteString("**Active Tasks:**\\n")
+		for _, t := range e.tasks {
+			sb.WriteString("- " + t + "\\n")
+		}
+		sb.WriteString("\\n")
+	}
+	if len(e.decisions) > 0 {
+		sb.WriteString("**Active Decisions:**\\n")
+		for _, d := range e.decisions {
+			sb.WriteString("- " + d + "\\n")
+		}
+		sb.WriteString("\\n")
+	}
+
+	// Ingest checkpoint as a system message
+	checkpointMsg := seahorse.Message{
+		Role:       "system",
+		Content:    strings.TrimSpace(sb.String()),
+		TokenCount: tokenizer.EstimateMessageTokens(providers.Message{Content: sb.String()}),
+	}
+	if _, err := m.engine.Ingest(ctx, sessionKey, []seahorse.Message{checkpointMsg}); err != nil {
+		logger.WarnCF("seahorse", "checkpoint: ingest failed", map[string]any{
+			"session": sessionKey,
+			"error":   err.Error(),
+		})
+	} else {
+		logger.InfoCF("seahorse", "checkpoint: created", map[string]any{
+			"session":   sessionKey,
+			"files":     len(e.files),
+			"tasks":     len(e.tasks),
+			"decisions": len(e.decisions),
+		})
+	}
+}
+
+// extractFilesFromContent extracts file paths from assistant message content.
+// Matches: write_file("..."), edit_file("..."), append_file("..."), read_file("...")
+func extractFilesFromContent(content string) []string {
+	// Match file operations with quoted paths
+	re := regexp.MustCompile(`(?:write_file|edit_file|append_file|read_file|load_image)\s*\(\s*"(?P<path>[^"]+)"`)
+	matches := re.FindAllStringSubmatch(content, -1)
+	var files []string
+	for _, m := range matches {
+		if len(m) >= 2 && m[1] != "" {
+			// Take basename for readability
+			fn := filepath.Base(m[1])
+			if fn != "." && fn != "/" {
+				files = append(files, fn)
+			}
+		}
+	}
+	return files
+}
+
+// extractTasksFromContent extracts task-related phrases from content.
+func extractTasksFromContent(content string) []string {
+	var tasks []string
+	patterns := []string{
+		`(?i)(?:TODO|FIXME|HACK|WORKAROUND)[:\s]+(.+?)(?:\n|$)`,
+		`(?i)(?:need to|working on|implementing|fixing|debugging|adding|updating|refactoring)\s+(.+?)(?:\.|;|\n|$)`,
+		`(?i)(?:I'll|I will|let me|going to)\s+(.+?)(?:\.|;|\n|$)`,
+	}
+	for _, pat := range patterns {
+		re := regexp.MustCompile(pat)
+		matches := re.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) >= 2 {
+				task := strings.TrimSpace(m[1])
+				if len(task) > 3 && len(task) < 200 {
+					tasks = append(tasks, task)
+				}
+			}
+		}
+	}
+	return uniqueStrings(tasks)
+}
+
+// extractDecisionsFromContent extracts decision phrases from content.
+func extractDecisionsFromContent(content string) []string {
+	var decisions []string
+	patterns := []string{
+		`(?i)(?:decided to|decision:|choose|I'll use|let's go with|use\s+\S+\s+(?:over|instead of))\s+(.+?)(?:\.|;|\n|$)`,
+		`(?i)(?:better to|prefer|recommend)\s+(.+?)(?:\.|;|\n|$)`,
+	}
+	for _, pat := range patterns {
+		re := regexp.MustCompile(pat)
+		matches := re.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) >= 2 {
+				dec := strings.TrimSpace(m[1])
+				if len(dec) > 3 && len(dec) < 200 {
+					decisions = append(decisions, dec)
+				}
+			}
+		}
+	}
+	return uniqueStrings(decisions)
+}
+
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 // Ingest records a message into seahorse SQLite.
@@ -194,11 +391,19 @@ func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKe
 
 // providerToSeahorseMessage converts a providers.Message to a seahorse.Message.
 func providerToSeahorseMessage(msg protocoltypes.Message) seahorse.Message {
+	hasToolCalls := len(msg.ToolCalls) > 0
+	reasoningContent := msg.ReasoningContent
+	if !hasToolCalls {
+		// Strip reasoning_content for non-tool-call messages.
+		// DeepSeek V4 rule: only tool-call turns need reasoning round-tripped.
+		reasoningContent = ""
+	}
+
 	result := seahorse.Message{
 		Role:                    msg.Role,
 		Content:                 msg.Content,
-		ReasoningContent:        msg.ReasoningContent,
-		ReasoningContentPresent: msg.ReasoningContentPresent,
+		ReasoningContent:        reasoningContent,
+		ReasoningContentPresent: hasToolCalls && msg.ReasoningContentPresent,
 		TokenCount:              tokenizer.EstimateMessageTokens(msg),
 	}
 
@@ -269,6 +474,15 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 			if part.Type == "media" && part.MediaURI != "" {
 				pm.Media = append(pm.Media, part.MediaURI)
 			}
+		}
+
+		// Strip reasoning_content when message has no tool_calls.
+		// DeepSeek V4 thinking mode rule: only messages with tool_calls
+		// must round-trip reasoning_content. Stripping it for non-tool-call
+		// messages prevents context bloat (60k+ tokens wasted on reasoning).
+		if len(pm.ToolCalls) == 0 {
+			pm.ReasoningContent = ""
+			pm.ReasoningContentPresent = false
 		}
 
 		messages = append(messages, pm)

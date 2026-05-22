@@ -40,12 +40,31 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	if !ts.opts.NoHistory {
 		toolDefs := ts.agent.Tools.ToProviderDefs()
 		if isOverContextBudget(ts.agent.ContextWindow, messages, toolDefs, ts.agent.MaxTokens) {
+			// Budget for history after compression: reserve space for
+			// output + tool defs + dynamic suffix + safety margin.
+			// seahorse.Compact() uses its own tokenizer which is closer to
+			// the API token count. Our estimate over-counts by ~1.27x
+			// (est 137k → API 107k). To ensure compression actually trims
+			// history enough, we target a conservative fraction of the
+			// remaining headroom so seahorse gets a meaningful budget.
+			//
+			// Compact budget = (contextWindow - maxTokens - toolDefs) * 60% - margin
+			// This leaves ~40% headroom for output and overhead.
+			toolDefTokens := EstimateToolDefsTokens(toolDefs)
+			available := ts.agent.ContextWindow - ts.agent.MaxTokens - toolDefTokens
+			compactBudget := available * 3 / 5 // 60% of available headroom
+			if compactBudget < 16000 {
+				compactBudget = 16000
+			}
 			logger.WarnCF("agent", "Proactive compression: context budget exceeded before LLM call",
-				map[string]any{"session_key": ts.sessionKey})
+				map[string]any{
+					"session_key":    ts.sessionKey,
+					"compact_budget": compactBudget,
+				})
 			if err := p.ContextManager.Compact(ctx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonProactive,
-				Budget:     ts.agent.ContextWindow,
+				Budget:     compactBudget,
 			}); err != nil {
 				logger.WarnCF("agent", "Proactive compact failed", map[string]any{
 					"session_key": ts.sessionKey,
