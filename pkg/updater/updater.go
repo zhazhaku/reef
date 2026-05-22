@@ -189,7 +189,7 @@ func UpdateSelf(programName string) error {
 // GetReleaseAPIURL returns the GitHub Releases API URL for the given repo owner.
 // Example: owner="sky5454" -> https://api.github.com/repos/sky5454/reef/releases/latest
 func GetReleaseAPIURL(owner string) string {
-	return fmt.Sprintf("https://api.github.com/repos/%s/picoclaw/releases/latest", owner)
+	return fmt.Sprintf("https://api.github.com/repos/%s/reef/releases/latest", owner)
 }
 
 // GetProdReleaseAPIURL returns the production release API URL (upstream).
@@ -200,7 +200,7 @@ func GetProdReleaseAPIURL() string {
 // GetReleaseTagAPIURL returns the GitHub Releases API URL for a specific tag.
 // Example: owner="sipeed", tag="nightly" -> https://api.github.com/repos/sipeed/picoclaw/releases/tags/nightly
 func GetReleaseTagAPIURL(owner, tag string) string {
-	return fmt.Sprintf("https://api.github.com/repos/%s/picoclaw/releases/tags/%s", owner, tag)
+	return fmt.Sprintf("https://api.github.com/repos/%s/reef/releases/tags/%s", owner, tag)
 }
 
 // GetNightlyReleaseAPIURL returns the nightly release API URL for the production repo.
