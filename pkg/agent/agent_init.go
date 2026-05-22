@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -103,6 +104,41 @@ func NewAgentLoop(
 
 	al.contextManager = al.resolveContextManager()
 
+	// Register tool sandbox hook: intercepts large exec outputs and stores
+	// them in seahorse (FTS5 indexed) while returning only a summary to the LLM.
+	// This prevents context pollution from verbose tool outputs.
+	if al.contextManager != nil {
+		sandboxHook := NewToolSandboxHook(2000, 500, al.contextManager)
+		_ = al.hooks.Mount(HookRegistration{
+			Name:     "tool-sandbox",
+			Hook:     sandboxHook,
+			Priority: 60, // After dangerous-tool-approver (50), before user hooks
+			Source:   HookSourceInProcess,
+		})
+	}
+
+	// Initialize per-conversation mode store (shares seahorse SQLite DB)
+	if cm, ok := al.contextManager.(interface{ DB() *sql.DB }); ok {
+		al.modeStore = NewModeStore(cm.DB())
+		al.hermesOrch = NewHermesOrchestrator(HermesOrchestratorConfig{
+			WorkflowStore: NewWorkflowStore(cm.DB()),
+			ModeStore:     al.modeStore,
+			LLMTimeout:    time.Duration(cfg.Hermes.LLMTimeoutSeconds) * time.Second,
+			Provider: func() (providers.LLMProvider, string) {
+				if agent := al.registry.GetDefaultAgent(); agent != nil {
+					return agent.Provider, agent.Model
+				}
+				return nil, ""
+			},
+			Model: func() string {
+				if agent := al.registry.GetDefaultAgent(); agent != nil {
+					return agent.Model
+				}
+				return ""
+			},
+		})
+	}
+
 	// Register shared tools to all agents (now that al is created)
 	registerSharedTools(al, cfg, msgBus, registry, provider)
 
@@ -131,15 +167,8 @@ func registerSharedTools(
 			continue
 		}
 
-		// === Hermes Coordinator mode: only register coordination tools ===
-		if al.hermesMode == HermesCoordinator {
-			registerCoordinatorTools(al, agent, cfg, msgBus)
-			continue
-		}
-
-		// === Hermes Executor / Full mode: register all tools ===
-		// (reef_submit_task is not in the default registration, so Executor
-		// mode doesn't need special handling here)
+		// All modes register the same tool set (D2: unified for DeepSeek cache hit).
+		// HermesCoordinator enforcement is done by HermesGuard at runtime, not here.
 
 		if cfg.Tools.IsToolEnabled("web") {
 			searchTool, err := tools.NewWebSearchTool(tools.WebSearchToolOptionsFromConfig(cfg))
@@ -264,11 +293,22 @@ func registerSharedTools(
 			}
 		}
 
-		// Spawn and spawn_status tools share a SubagentManager.
-		// Construct it when either tool is enabled (both require subagent).
+		// Spawn / subagent / spawn_status all share a SubagentManager but
+		// have INDEPENDENT registration gates. Decoupled in fix for
+		// regression introduced by 329e68e0 (refactor: Agent Looper phase2)
+		// which incorrectly required `subagent` to be enabled before
+		// `spawn` or `spawn_status` could register, and additionally
+		// nested `subagent` tool registration inside the `if spawnEnabled`
+		// block, breaking the "subagent only" configuration as well.
+		//
+		// New semantics:
+		//   - SubagentManager is constructed when ANY of the three is enabled.
+		//   - Each tool registers based ONLY on its own config flag.
+		//   - spawn_status is fully independent (read-only on manager.tasks).
 		spawnEnabled := cfg.Tools.IsToolEnabled("spawn")
+		subagentEnabled := cfg.Tools.IsToolEnabled("subagent")
 		spawnStatusEnabled := cfg.Tools.IsToolEnabled("spawn_status")
-		if (spawnEnabled || spawnStatusEnabled) && cfg.Tools.IsToolEnabled("subagent") {
+		if spawnEnabled || subagentEnabled || spawnStatusEnabled {
 			subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace)
 			subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
 
@@ -342,9 +382,11 @@ func registerSharedTools(
 
 			// Clone the parent's tool registry so subagents can use all
 			// tools registered so far (file, web, etc.) but NOT spawn/
-			// spawn_status which are added below — preventing recursive
-			// subagent spawning.
+			// subagent/spawn_status which are added below — preventing
+			// recursive subagent spawning.
 			subagentManager.SetTools(agent.Tools.Clone())
+
+			// Each tool now registers independently based on its own flag.
 			if spawnEnabled {
 				spawnTool := tools.NewSpawnTool(subagentManager)
 				spawnTool.SetSpawner(NewSubTurnSpawner(al))
@@ -352,19 +394,18 @@ func registerSharedTools(
 				spawnTool.SetAllowlistChecker(func(targetAgentID string) bool {
 					return registry.CanSpawnSubagent(currentAgentID, targetAgentID)
 				})
-
 				agent.Tools.Register(spawnTool)
-
-				// Also register the synchronous subagent tool
+			}
+			if subagentEnabled {
+				// Synchronous subagent tool (independent of spawn).
 				subagentTool := tools.NewSubagentTool(subagentManager)
 				subagentTool.SetSpawner(NewSubTurnSpawner(al))
 				agent.Tools.Register(subagentTool)
 			}
 			if spawnStatusEnabled {
+				// Read-only status tool, fully independent.
 				agent.Tools.Register(tools.NewSpawnStatusTool(subagentManager))
 			}
-		} else if (spawnEnabled || spawnStatusEnabled) && !cfg.Tools.IsToolEnabled("subagent") {
-			logger.WarnCF("agent", "spawn/spawn_status tools require subagent to be enabled", nil)
 		}
 	}
 }

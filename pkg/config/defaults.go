@@ -442,7 +442,7 @@ func DefaultConfig() *Config {
 				Enabled: true,
 			},
 			SpawnStatus: ToolConfig{
-				Enabled: false,
+				Enabled: true,
 			},
 			SPI: ToolConfig{
 				Enabled: false, // Hardware tool - Linux only
@@ -470,6 +470,9 @@ func DefaultConfig() *Config {
 			TTSModelName:      "",
 			EchoTranscription: false,
 			ElevenLabsAPIKey:  "",
+		},
+		Hermes: HermesConfig{
+			LLMTimeoutSeconds: 120,
 		},
 		BuildInfo: BuildInfo{
 			Version:   Version,
