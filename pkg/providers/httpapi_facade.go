@@ -30,6 +30,7 @@ func NewHTTPProviderWithMaxTokensField(apiKey, apiBase, proxy, maxTokensField st
 func NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
 	apiKey, apiBase, proxy, maxTokensField, userAgent string,
 	requestTimeoutSeconds int,
+	streamIdleTimeoutSeconds int,
 	extraBody map[string]any,
 	customHeaders map[string]string,
 ) *HTTPProvider {
@@ -40,6 +41,7 @@ func NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
 		maxTokensField,
 		userAgent,
 		requestTimeoutSeconds,
+		streamIdleTimeoutSeconds,
 		extraBody,
 		customHeaders,
 	)

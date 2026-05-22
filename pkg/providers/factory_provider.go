@@ -185,6 +185,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.MaxTokensField,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
 		)
@@ -266,6 +267,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.MaxTokensField,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
 		)
@@ -313,6 +315,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.MaxTokensField,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.StreamIdleTimeout,
 			extraBody,
 			cfg.CustomHeaders,
 		)
@@ -343,6 +346,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.MaxTokensField,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
 		)

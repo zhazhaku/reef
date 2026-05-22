@@ -35,14 +35,15 @@ type (
 )
 
 type Provider struct {
-	apiKey         string
-	apiBase        string
-	providerName   string
-	maxTokensField string // Field name for max tokens (e.g., "max_completion_tokens" for o1/glm models)
-	httpClient     *http.Client
-	extraBody      map[string]any // Additional fields to inject into request body
-	customHeaders  map[string]string
-	userAgent      string
+	apiKey            string
+	apiBase           string
+	providerName      string
+	maxTokensField    string // Field name for max tokens (e.g., "max_completion_tokens" for o1/glm models)
+	httpClient        *http.Client
+	extraBody         map[string]any    // Additional fields to inject into request body
+	customHeaders     map[string]string
+	userAgent         string
+	streamIdleTimeout time.Duration // Per-provider idle timeout for stream watchdog (0 = use package default)
 }
 
 type Option func(*Provider)
@@ -96,6 +97,14 @@ func WithExtraBody(extraBody map[string]any) Option {
 func WithCustomHeaders(customHeaders map[string]string) Option {
 	return func(p *Provider) {
 		p.customHeaders = customHeaders
+	}
+}
+
+func WithStreamIdleTimeout(timeout time.Duration) Option {
+	return func(p *Provider) {
+		if timeout > 0 {
+			p.streamIdleTimeout = timeout
+		}
 	}
 }
 
@@ -479,19 +488,24 @@ func (p *Provider) ChatStream(
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
-	return parseStreamResponseWithIdleGuard(streamCtx, streamCancel, resp.Body, onChunk)
+	idleTimeout := p.streamIdleTimeout
+	if idleTimeout == 0 {
+		idleTimeout = streamIdleTimeout
+	}
+	return parseStreamResponseWithIdleGuard(streamCtx, streamCancel, resp.Body, onChunk, idleTimeout)
 }
 
 // streamIdleTimeout is the max duration without receiving any chunk before
 // the stream is considered stalled and forcibly aborted. Configurable via
-// the REEF_STREAM_IDLE_TIMEOUT_SECONDS env var (default 90 s).
+// the REEF_STREAM_IDLE_TIMEOUT_SECONDS env var or per-model StreamIdleTimeout
+// config field (default 180 s).
 var streamIdleTimeout = func() time.Duration {
 	if v := os.Getenv("REEF_STREAM_IDLE_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return time.Duration(n) * time.Second
 		}
 	}
-	return 90 * time.Second
+	return 180 * time.Second
 }()
 
 // parseStreamResponseWithIdleGuard wraps parseStreamResponse with a watchdog
@@ -501,6 +515,7 @@ func parseStreamResponseWithIdleGuard(
 	cancel context.CancelFunc,
 	reader io.Reader,
 	onChunk func(accumulated string),
+	idleTimeout time.Duration,
 ) (*LLMResponse, error) {
 	// Last-activity tracker, updated on each chunk via the wrapped callback.
 	lastActivity := time.Now()
@@ -517,11 +532,11 @@ func parseStreamResponseWithIdleGuard(
 		}
 	}
 
-	// Watchdog goroutine: cancel context if idle > streamIdleTimeout.
+	// Watchdog goroutine: cancel context if idle > idleTimeout.
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
-		ticker := time.NewTicker(streamIdleTimeout / 3)
+		ticker := time.NewTicker(idleTimeout / 3)
 		defer ticker.Stop()
 		for {
 			select {
@@ -532,7 +547,7 @@ func parseStreamResponseWithIdleGuard(
 			case <-activityCh:
 				// reset implicit via lastActivity update
 			case <-ticker.C:
-				if time.Since(lastActivity) > streamIdleTimeout {
+				if time.Since(lastActivity) > idleTimeout {
 					cancel()
 					return
 				}
