@@ -43,3 +43,41 @@ func FilterInvalidHistoryMessages(history []protocoltypes.Message) []protocoltyp
 	}
 	return filtered
 }
+
+// TrimLeadingOrphans removes orphan tool-call pairs from the front of history.
+// An orphan is an assistant(tool_calls) message with no preceding user message,
+// and its associated tool result messages. These occur when a session's first
+// persisted messages are mid-turn tool calls (e.g., from interrupted sessions
+// or Hermes mode).
+//
+// Removing them here avoids the downstream sanitizeHistoryForProvider having
+// to drop dozens of messages on every turn, saving CPU cycles and eliminating
+// verbose debug logging per request.
+func TrimLeadingOrphans(history []protocoltypes.Message) []protocoltypes.Message {
+	if len(history) == 0 {
+		return history
+	}
+	i := 0
+	for i < len(history) {
+		msg := history[i]
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// Orphan tool-call assistant: skip it and all following tool messages.
+			i++
+			for i < len(history) && history[i].Role == "tool" {
+				i++
+			}
+			continue
+		}
+		if msg.Role == "tool" {
+			// Orphan tool message without preceding assistant tool-call: skip.
+			i++
+			continue
+		}
+		// First valid message found (user, system, or non-tool-call assistant).
+		break
+	}
+	if i == 0 {
+		return history
+	}
+	return history[i:]
+}

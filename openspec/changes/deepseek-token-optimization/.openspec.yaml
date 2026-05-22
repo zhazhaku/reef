@@ -1,0 +1,7 @@
+name: deepseek-token-optimization
+schema: spec-driven
+status: planning
+created: "2026-05-08"
+description: |
+  分析并优化 token 消耗和 DeepSeek 上下文缓存命中率，在不丢失记忆的前提下
+  降低 API 调用成本和延迟。

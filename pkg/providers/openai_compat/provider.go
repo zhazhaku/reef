@@ -11,6 +11,8 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -318,6 +320,19 @@ func filterDeepSeekReasoningTurn(messages []Message) []Message {
 			cloned.ReasoningContentPresent = true
 		}
 
+		// Truncate excessively long reasoning content to reduce token
+		// consumption. DeepSeek thinking mode stores reasoning in the
+		// message and requires it to be round-tripped, but very long
+		// reasoning chains (5k+ chars) add significant input cost.
+		// We keep 4096 chars + a marker so the LLM knows content was
+		// truncated. seahorse stores the full reasoning content.
+		const maxReasoningChars = 4096
+		if len(cloned.ReasoningContent) > maxReasoningChars {
+			cloned.ReasoningContent = cloned.ReasoningContent[:maxReasoningChars] +
+				fmt.Sprintf(" [reasoning truncated: %d→%d chars]",
+					len(msg.ReasoningContent), maxReasoningChars)
+		}
+
 		if assistantMessageEmpty(cloned) {
 			continue
 		}
@@ -458,7 +473,74 @@ func (p *Provider) ChatStream(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return parseStreamResponse(ctx, resp.Body, onChunk)
+	// Wrap context with stream-idle watchdog: if no chunk arrives for streamIdleTimeout,
+	// cancel context to abort the stream. This catches the case where API sends headers
+	// then silently stalls (the root cause of the 7.5h hang from May 21, 2026).
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+
+	return parseStreamResponseWithIdleGuard(streamCtx, streamCancel, resp.Body, onChunk)
+}
+
+// streamIdleTimeout is the max duration without receiving any chunk before
+// the stream is considered stalled and forcibly aborted. Configurable via
+// the REEF_STREAM_IDLE_TIMEOUT_SECONDS env var (default 90 s).
+var streamIdleTimeout = func() time.Duration {
+	if v := os.Getenv("REEF_STREAM_IDLE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 90 * time.Second
+}()
+
+// parseStreamResponseWithIdleGuard wraps parseStreamResponse with a watchdog
+// that cancels the context if no progress is made within streamIdleTimeout.
+func parseStreamResponseWithIdleGuard(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	reader io.Reader,
+	onChunk func(accumulated string),
+) (*LLMResponse, error) {
+	// Last-activity tracker, updated on each chunk via the wrapped callback.
+	lastActivity := time.Now()
+	activityCh := make(chan struct{}, 1)
+
+	wrappedOnChunk := func(accumulated string) {
+		lastActivity = time.Now()
+		select {
+		case activityCh <- struct{}{}:
+		default:
+		}
+		if onChunk != nil {
+			onChunk(accumulated)
+		}
+	}
+
+	// Watchdog goroutine: cancel context if idle > streamIdleTimeout.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		ticker := time.NewTicker(streamIdleTimeout / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-activityCh:
+				// reset implicit via lastActivity update
+			case <-ticker.C:
+				if time.Since(lastActivity) > streamIdleTimeout {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	return parseStreamResponse(ctx, reader, wrappedOnChunk)
 }
 
 // parseStreamResponse parses an OpenAI-compatible SSE stream.
