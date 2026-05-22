@@ -339,3 +339,84 @@ CLI: picoclaw --server
 | 5 | 降级策略决策树 | 完整的降级/恢复流程 |
 | 6 | CLI 参数映射 | --server → 行为模式的完整链路 |
 | 7 | reef-scheduler-v2 设计更新 | 融合 Hermes 后的 design.md 修订 |
+
+---
+updated: 2026-05-09
+---
+
+## 6. 智能协作工作流架构
+
+> 新增 §6-§9，详见 `proposal.md` §4-§9 和 `specs/workflow.md`
+
+### 6.1 整体架构
+
+```
+                      ┌──────────────────────────────────────┐
+                      │           Server (Coordinator)        │
+                      │                                      │
+  User ──────────────▶│  HermesWorkflow                      │
+                      │  ┌──────────────────────────────┐    │
+                      │  │ Phase 1: Intake              │    │
+                      │  │   TaskProfile 解析            │    │
+                      │  │   ↓                          │    │
+                      │  │ Phase 2: Brainstorm          │    │
+                      │  │   SelectClients() ──────────┐│    │
+                      │  │   TaskBoard ← multi-round    ││    │
+                      │  │   ↓                          ││    │
+                      │  │ Phase 3: Review              ││    │
+                      │  │   Multi-reviewer scoring     ││    │
+                      │  │   ↓                          ││    │
+                      │  │ Phase 4: Research            ││    │
+                      │  │   Deep analysis per direction││    │
+                      │  │   ↓                          ││    │
+                      │  │ Phase 5: Design              ││    │
+                      │  │   PRD + Tech Design          ││    │
+                      │  │   ↓                          ││    │
+                      │  │ Phase 6: Report              ││    │
+                      │  │   Final output               ││    │
+                      │  └──────────────────────────────┘│    │
+                      └──────────────────┬───────────────────┘
+                                         │
+                    ┌────────────────────┼────────────────────┐
+                    ▼                    ▼                     ▼
+              ┌──────────┐       ┌──────────┐         ┌──────────┐
+              │ Client-A │       │ Client-B │         │ Client-C │
+              │ analyst  │       │ architect│         │researcher│
+              └──────────┘       └──────────┘         └──────────┘
+```
+
+### 6.2 新增文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `pkg/agent/hermes_workflow.go` | WorkflowPhase 状态机 |
+| `pkg/agent/hermes_orchestrator.go` | 编排逻辑（选择 client、控制轮次） |
+| `pkg/agent/hermes_taskboard.go` | 共享任务板（seahorse 封装） |
+
+### 6.3 与现有 Hermes 的关系
+
+```
+现有 Hermes (Phase 0):
+  ├── 角色约束（Coordinator 不直接执行）✅
+  ├── Tool 白名单                              ✅
+  ├── HermesGuard                               ✅
+  └── 单步分发 (reef_submit_task → 1 client)    ✅
+
+新增工作流 (Phase 1-8):
+  ├── 多阶段流水线                              🔧
+  ├── 动态 Client 选择（按角色+规模）            🔧
+  ├── 共享任务板（多 client 交叉讨论）           🔧
+  ├── 轮次控制 + 收敛检测                        🔧
+  ├── 评审 + 评分 + 排序                          🔧
+  └── 人类全流程可介入                            🔧
+```
+
+### 6.4 实现优先级
+
+```
+P0: Phase 1 (工作流状态机) — 基础设施，所有阶段依赖
+P1: Phase 2 (头脑风暴) + Phase 3 (评审) — 核心价值
+P2: Phase 4 (调研) + Phase 5 (设计) — 完整流水线
+P3: Phase 7 (reef-scheduler-v2 融合) — 生产就绪
+P4: Phase 8 (测试)
+```
