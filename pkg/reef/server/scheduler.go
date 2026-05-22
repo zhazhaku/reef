@@ -28,6 +28,7 @@ type Scheduler struct {
 	onRequeue          func(task *reef.Task)
 	onTaskStateChanged func(task *reef.Task)
 	resultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
+	replySender        func(task *reef.Task, result *reef.TaskResult)
 }
 
 // SchedulerOptions configures the scheduler.
@@ -41,6 +42,11 @@ type SchedulerOptions struct {
 	OnRequeue          func(task *reef.Task)
 	OnTaskStateChanged func(task *reef.Task)
 	ResultCallback     func(task *reef.Task, result *reef.TaskResult, taskErr *reef.TaskError)
+	// ReplySender is called when a task completes and has a ReplyTo context.
+	// It receives the task result and ReplyTo routing info, and is responsible
+	// for delivering the result back to the originating channel (e.g., Feishu).
+	ReplySender        func(task *reef.Task, result *reef.TaskResult)
+	// TimeoutScanner, if set, scans for stale tasks. Leave nil to disable.
 }
 
 // NewScheduler creates a scheduler bound to a registry and queue.
@@ -64,6 +70,7 @@ func NewScheduler(registry *Registry, queue Queue, opts SchedulerOptions) *Sched
 		onRequeue:          opts.OnRequeue,
 		onTaskStateChanged: opts.OnTaskStateChanged,
 		resultCallback:     opts.ResultCallback,
+		replySender:        opts.ReplySender,
 	}
 }
 
@@ -232,6 +239,9 @@ func (s *Scheduler) HandleTaskCompleted(taskID string, result *reef.TaskResult) 
 		}
 		if s.resultCallback != nil {
 			s.resultCallback(task, result, nil)
+		}
+		if s.replySender != nil && task.ReplyTo != nil && !task.ReplyTo.IsZero() {
+			s.replySender(task, result)
 		}
 		go s.TryDispatch()
 		return nil

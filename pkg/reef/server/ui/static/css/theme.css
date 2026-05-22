@@ -1,0 +1,79 @@
+/* theme.css — CSS Variables for light/dark themes */
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-tertiary: #0f3460;
+    --bg-card: #16213e;
+    --bg-input: #1a1a2e;
+    --bg-hover: rgba(255, 255, 255, 0.05);
+    --bg-active: #0f3460;
+
+    --accent: #e94560;
+    --accent-hover: #d63851;
+    --accent-light: rgba(233, 69, 96, 0.15);
+
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --text-muted: #666;
+    --text-inverse: #1a1a2e;
+
+    --border: #2a2a4a;
+    --border-light: #1e1e3e;
+
+    --success: #4caf50;
+    --success-light: rgba(76, 175, 80, 0.15);
+    --warning: #ff9800;
+    --warning-light: rgba(255, 152, 0, 0.15);
+    --error: #f44336;
+    --error-light: rgba(244, 67, 54, 0.15);
+    --info: #2196f3;
+    --info-light: rgba(33, 150, 243, 0.15);
+
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+
+    --sidebar-width: 220px;
+    --sidebar-collapsed: 56px;
+    --topbar-height: 48px;
+    --radius: 8px;
+    --radius-sm: 4px;
+    --radius-lg: 12px;
+    --transition: 0.2s ease;
+}
+
+/* Light theme */
+[data-theme="light"] {
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #e8e8e8;
+    --bg-card: #ffffff;
+    --bg-input: #f5f5f5;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-active: #e0e0e0;
+
+    --accent: #e94560;
+    --accent-hover: #d63851;
+    --accent-light: rgba(233, 69, 96, 0.1);
+
+    --text-primary: #1a1a1a;
+    --text-secondary: #555;
+    --text-muted: #999;
+    --text-inverse: #ffffff;
+
+    --border: #ddd;
+    --border-light: #eee;
+
+    --success: #388e3c;
+    --success-light: rgba(56, 142, 60, 0.1);
+    --warning: #f57c00;
+    --warning-light: rgba(245, 124, 0, 0.1);
+    --error: #d32f2f;
+    --error-light: rgba(211, 47, 47, 0.1);
+    --info: #1976d2;
+    --info-light: rgba(25, 118, 210, 0.1);
+
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
