@@ -73,3 +73,11 @@ web/backend/dist/*
 docker/data
 
 .omc/
+
+# reef binary (compiled output)
+/reef
+/reef-test
+
+# Python cache
+__pycache__/
+*.pyc
