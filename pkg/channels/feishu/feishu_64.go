@@ -647,6 +647,13 @@ func (c *FeishuChannel) handleMessageReceive(ctx context.Context, event *larkim.
 	if replyTargetID(message) != "" || stringValue(message.ThreadId) != "" {
 		content, mediaRefs = c.prependReplyContext(ctx, message, chatID, content, mediaRefs)
 	}
+	// For non-reply image messages, replace placeholder tags with a useful prompt
+	// that downstream providers (e.g. MiMo) can process as valid text content.
+	if messageType == larkim.MsgTypeImage && replyTargetID(message) == "" {
+		if content == "[image: photo]" || content == "[empty message]" {
+			content = "Please look at this image."
+		}
+	}
 	if content == "" {
 		content = "[empty message]"
 	}

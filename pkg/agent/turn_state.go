@@ -644,3 +644,36 @@ func turnStateFromContext(ctx context.Context) *turnState {
 func TurnStateFromContext(ctx context.Context) *turnState {
 	return turnStateFromContext(ctx)
 }
+
+
+// GetActiveSubTurns returns info about active sub-turns for spawn_status tool.
+// This implements the tools.ActiveTurnsSource interface.
+func (al *AgentLoop) GetActiveSubTurns(ctx context.Context) []tools.ActiveTurnInfo {
+	var results []tools.ActiveTurnInfo
+	al.activeTurnStates.Range(func(key, value any) bool {
+		ts, ok := value.(*turnState)
+		if !ok {
+			return true
+		}
+		// Skip the main turn (parent), only include child turns
+		if ts.parentTurnID == "" {
+			return true
+		}
+		task := ""
+		task = ts.userMessage
+		const maxTaskLen = 200
+		runes := []rune(task)
+		if len(runes) > maxTaskLen {
+			task = string(runes[:maxTaskLen]) + "..."
+		}
+		results = append(results, tools.ActiveTurnInfo{
+			ID:      ts.turnID,
+			Label:   ts.turnID,
+			Task:    task,
+			Status:  "running",
+			Created: ts.startedAt.UnixMilli(),
+		})
+		return true
+	})
+	return results
+}

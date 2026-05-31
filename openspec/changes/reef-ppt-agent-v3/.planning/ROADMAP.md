@@ -1,51 +1,53 @@
-# Roadmap — PPT Agent v3
+# PPT Agent v3 Roadmap
 
-## Phase 1: StyleExtractor (4 tasks, 4h)
-**Goal**: 能从任意 .pptx 提取 StyleProfile，定义 5 种内置风格 DSL
-- T1.1 StyleProfile Schema
-- T1.2 PPTX Style Extractor
-- T1.3 Reference Library Builder
-- T1.4 Built-in Style DSL Definitions
+> v3.0 GA: 62.5h | v3.1 后续: ~17h | 总: ~80h
 
-## Phase 2: LayoutComposer (5 tasks, 6h)
-**Goal**: 根据 detail_plan + style_ref 生成 layout_plan.json v3
-- T2.1 Layout Plan v3 Schema
-- T2.2 Built-in Layout Templates (8 种)
-- T2.3 Layout Selection Logic
-- T2.4 Custom Reference Layout Borrowing
-- T2.5 Layout Plan Generator
+## v3.0 GA — P0 修复 + 7 阶段全链路 (62.5h)
 
-## Phase 3: PPTXBuilder (5 tasks, 6h)
-**Goal**: 从空白构建 PPTX，每元素独立可编辑
-- T3.1 Blank Deck Builder
-- T3.2 Shape Factory
-- T3.3 Slide Builder
-- T3.4 Full Deck Builder + Overflow + Quality Gate
-- T3.5 Backward Compatibility (strict mode)
+### Phase A: Engine Foundation (M1, ~20h)
 
-## Phase 4: Preview Engine (3 tasks, 3h)
-**Goal**: 强制预览生成，PNG→SVG→HTML 降级
-- T4.1 PNG Renderer
-- T4.2 HTML Fallback Renderer
-- T4.3 Preview Pipeline
+- T1 StyleExtractor: 4 级 style_ref 解析 + 白名单 + clrScheme fallback (7.5h)
+- T2 LayoutComposer: 命名空间生成 + 几何验证 + auto_grid 降级 + LLM schema-lock (11h)
+- T6 Built-in Styles: 5 内置样式 DSL + theme fallback (4.5h, 可与 T1 并行)
 
-## Phase 5: Pipeline Integration (4 tasks, 4h)
-**Goal**: 7 阶段状态机 + 确认点 + SKILL.md v3
-- T5.1 Phase Router (状态机)
-- T5.2 SKILL.md v3 Update
-- T5.3 Prompt Updates
-- T5.4 End-to-End Integration Test
+### Phase B: Output & Preview (M2+M3, ~18h)
 
-## Phase 6: Built-in Styles + Polish (3 tasks, 2h)
-**Goal**: 5 风格缩略图 + 选择 UI + 验证
-- T6.1 Style Preview Thumbnails
-- T6.2 Style Selection UI Message
-- T6.3 Style Application Verification
+- T3 PPTXBuilder: 新建表格 + 主题注入 + 完整性校验 + CJK 字体子集 (12h)
+- T4 Preview Engine: SVG 主路径 + LO 池 + HTML 兜底 (6h)
 
-## Phase 7: Tests (5 tasks, 5h)
-**Goal**: 全覆盖测试 + 河南移动 PPT 验收
-- T7.1 Unit Tests — StyleExtractor
-- T7.2 Unit Tests — LayoutComposer
-- T7.3 Unit Tests — PPTXBuilder
-- T7.4 Unit Tests — Preview Engine
-- T7.5 Integration Test — Full Pipeline (河南移动验收)
+### Phase C: Pipeline & UX (M4, ~12.5h)
+
+- T5 Pipeline Integration: session 持久化 + LLM 降级 + 5 确认点 + refinement 收敛 + 超时归档 (12.5h)
+
+### Phase D: Quality (M5, ~9h)
+
+- T7 Tests: LLM fixture + schema 验证 + 几何边界 + 完整性 + checkpoint resume (9h)
+- 河南移动 PPT 复测 + 灰度
+
+## v3.1 后续 (~17h)
+
+- T0 多源解析器 pdf/xlsx/url (6h)
+- 内置样式扩展到 10 种 (3h)
+- 并发/多用户隔离 (4h)
+- 结构化日志体系完整化 (2h)
+- 跨平台字体差异处理 (2h)
+
+## 里程碑
+
+| M | 内容 | 累计工时 |
+|---|------|----------|
+| M1 | Engine 可独立产出合规 layout_plan.json | 20h |
+| M2 | PPTXBuilder 输出可打开 .pptx | 32h |
+| M3 | 预览三级降级链路打通 | 38h |
+| M4 | 5 确认点 + resume + LLM 降级全链通 | 50.5h |
+| M5 | 测试通过 + 河南 PPT 复测 OK = GA | 62.5h |
+
+## 关键决策回顾
+
+- Q1 预览主路径 = **A** (SVG 优先, PNG 降级)
+- Q2 表格策略 = **A** (新建表格, 不改模板)
+- Q3 工时上限 = **C** (v3.0/v3.1 分期, v3.0=62.5h)
+- Q4 多源解析器 = **B** (延后到 v3.1)
+- Q5 内置样式数量 = **A** (5 种)
+
+详见 `.planning/DECISIONS.md` D9-D15 和 `.planning/GAP-REPORT.md`。

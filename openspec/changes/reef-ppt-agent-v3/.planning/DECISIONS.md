@@ -86,3 +86,57 @@
 - 任何「待决策」项有研究输入后 → 移入「已决策」并标日期
 - 已决策项要改动 → 必须开新条目 D(N+1) 并写 supersedes D(X) 注脚
 - proposal.md / design.md / spec.md / tasks.md 改动必须先在此登记
+
+
+---
+
+## D9-D15 关闭原 Q1-Q7 (2026-05-22, 依据 GAP-REPORT)
+
+### D9 — style_ref 解析顺序 (closes Q1)
+**决策**: inline override > reference_lib > built_in DSL > slide_type 默认
+- inline = layout_plan.shapes[].style_ref 写字面对象
+- reference_lib = 自定义模板路径下的 reference_lib.json
+- built_in DSL = 5 套内置风格的 JSON
+- 默认 = slide_type 决定的兜底
+- 引用键必须在 style_decision.allowed_refs[] 白名单内 (走 instructor schema-locked)
+
+### D10 — shape_id 命名空间 (closes Q2)
+**决策**: 全局唯一 `s{plan_slide}_{role}_{seq}` (e.g. `s3_card_1`, `s3_card_2`)
+- overflow split 分配新 plan_slide 数字, 旧 id 不复用
+- refinement 走 shape_id diff (增量 patch)
+
+### D11 — 结构化 LLM 输出 (closes Q3)
+**决策**: 走 `instructor` (or `outlines`) — schema-locked, 不裸 JSON-mode
+- 所有 LLM 调用必须有 Pydantic 模型
+- enum 字段强制白名单 (slide_type / shape_type / action / style_ref 键)
+
+### D12 — v2.3 后向兼容 (closes Q4)
+**决策**: 保留 `compose_with_layout_plan()` 一个 release, 标 deprecated
+- 提供 `migrate_v2_to_v3.py` 一次性转换脚本
+- 老 SKILL.md 保留 1 release, 新版默认走 v3
+
+### D13 — 并发模型 (closes Q5)
+**决策**: LibreOffice 进程池, size 动态: `min(4, available_mem/300MB)`
+- OOM 降到 1 + 串行
+- per-slide 渲染 (非整 deck), 增量 refinement 只渲 dirty slide
+- work/<session_id>/ 隔离多用户
+
+### D14 — 缺失功能优先级 (closes Q6)
+**决策** (按 P0/P1/P2 分级):
+- **P0 必补** (T0/T3 阶段): 多源 parser 实现 / 表格 shape (row/col/merge) / 图片 shape (fit/crop) / 演讲备注
+- **P1** (T3.7): 中文排版默认值 / 字宽估算 / 字体回退链
+- **P2** (post-v3): 一键品牌化 / 增量重建 / 数据→图表 / 多语言字体配对 / 智能配图
+
+### D15 — 状态持久化 (closes Q7)
+**决策**: 每 phase 完成 atomic write JSON 到 work/<session>/
+- work/<session>/session.json: {phase_completed, last_action, slides_dirty: []}
+- CLI `--resume <session_dir>` 从断点续
+- refinement 走 dirty-slide 增量
+- 1h 无响应 → pending; 24h → 归档
+
+---
+
+## 决策完整性
+- D1-D8: 初始决策
+- D9-D15: 由 GAP-REPORT 关闭原 Q1-Q7
+- **共 15 条已决策, 0 待决** → 进入实现 ready

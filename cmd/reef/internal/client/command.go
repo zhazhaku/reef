@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -32,6 +33,7 @@ func NewClientCommand() *cobra.Command {
 		token      string
 		debug      bool
 		noTruncate bool
+		model      string
 	)
 
 	cmd := &cobra.Command{
@@ -74,6 +76,11 @@ Examples:
 			// Force Hermes Executor mode
 			cfg.Hermes.Mode = "executor"
 
+			// CLI --model overrides config default
+			if model != "" {
+				cfg.Agents.Defaults.ModelName = model
+			}
+
 			// Build connector options
 			connectorOpts := client.ConnectorOptions{
 				ServerURL: serverURL,
@@ -96,6 +103,7 @@ Examples:
 	cmd.Flags().StringVar(&token, "token", "", "Authentication token")
 	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
 	cmd.Flags().BoolVarP(&noTruncate, "no-truncate", "T", false, "Disable string truncation in debug logs")
+	cmd.Flags().StringVar(&model, "model", "", "Override default LLM model (must exist in model_list)")
 
 	return cmd
 }
@@ -118,7 +126,7 @@ func runClient(cfg *config.Config, connectorOpts client.ConnectorOptions, debug 
 		cancel()
 	}()
 
-	printClientBanner(connectorOpts)
+	printClientBanner(connectorOpts, cfg.Agents.Defaults.ModelName)
 
 	// Create LLM provider
 	provider, _, err := providers.CreateProvider(cfg)
@@ -220,13 +228,19 @@ func processMessages(ctx context.Context, connector *client.Connector, runner *c
 }
 
 // printClientBanner prints the client mode startup banner.
-func printClientBanner(opts client.ConnectorOptions) {
+func printClientBanner(opts client.ConnectorOptions, modelName string) {
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
 	fmt.Println("║                  Reef Client Mode                       ║")
 	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
 	fmt.Println("║  Hermes Mode:  Executor                                     ║")
-	fmt.Println("║  Role:         Worker Node (task execution)                 ║")
+	fmt.Printf("║  Role:         %-46s ║\n", opts.Role)
+	if modelName != "" {
+		fmt.Printf("║  Model:        %-46s ║\n", modelName)
+	}
+	if len(opts.Skills) > 0 {
+		fmt.Printf("║  Skills:       %-46s ║\n", strings.Join(opts.Skills, ", "))
+	}
 	fmt.Println("║  Tool Policy:  All tools available                          ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
 	fmt.Println()

@@ -252,3 +252,80 @@ T7.5 (after T5)
 - v2.3 `schema.py` extended (not replaced)
 - v2.3 prompts/ directory extended with new layout_prompt.md
 - New files: style_extractor.py, layout_composer.py, pptx_builder.py, preview_engine.py, pipeline.py
+
+---
+
+## 附录 — P0 任务补丁 (v3.0, GAP-REPORT 全采纳)
+
+### 任务追加 / 重构
+
+| ID | 任务 | 估时 | 依赖 | 关联 P0 |
+|----|------|------|------|---------|
+| **T0**  | (推迟到 v3.1) 多源解析器 pdf/xlsx/url | — | — | G0-10 (Q4=B) |
+| T1.5 | StyleExtractor 增加 4 级 style_ref 解析器 + 白名单生成 | 2h | T1 | G0-2/G0-7 |
+| T1.6 | Theme fallback: clrScheme 为空时注入 business_blue + .pptx 损坏/密码预检 | 1.5h | T1 | G0-11/G0-12 |
+| T2.1 | shape_id/content_key 命名空间生成器 + `validate_namespace()` | 1h | T2 | G0-3/G0-5 |
+| T2.6 | LayoutComposer 增加 `validate_geometry()` (边界 clamp + IOU 重叠 + CJK 宽度) | 3h | T2.1 | G0-4/G0-13 |
+| T2.7 | LLM schema-locked output (instructor + Pydantic Literal 白名单) | 2h | T1.5 | G0-7 |
+| T2.8 | `auto_grid_layout()` 降级布局 (2x2/3x1/3x2) | 1h | T2.6 | EH-7 |
+| T3.5 | Table 新建路径: `add_table()` + merged_cells | 1.5h | T3 | G0-9 (Q2=A) |
+| T3.6 | PPTXBuilder 主题/母版注入 (clone_master from reference) | 2h | T3 | G1-15 |
+| T3.7 | `verify_output()` 完整性校验 (重打开 + XML well-formed) | 1.5h | T3 | G0-11 |
+| T3.8 | CJK 字体子集嵌入 (subset 微软雅黑/思源黑体到 .pptx) | 2h | T3 | G0-8 |
+| **T4** | Preview Engine 重写 (SVG 主路径) | 5h | T3 | G0-1 (Q1=A) |
+| T4.5 | LO 进程池 + 超时 kill + tmpdir 清理 (PNG 可选路径) | 2h | T4 | EH-5 |
+| T4.6 | HTML 降级路径 (SVG 失败时启用) | 1h | T4 | G1-31 |
+| T5.5 | Session 持久化 (`session.json` 原子写 + `--resume` CLI) | 3h | T5 | G0-6 (D15) |
+| T5.10 | LLM 重试 + 模型降级 (quality→balanced→budget, 指数退避) | 2h | T5 | Spec 9 |
+| T5.11 | 5 确认点统一措辞模板 + feishu 长消息分片 | 1h | T5 | G1-20/G1-21 |
+| T5.12 | Refinement 收敛保证 (≤3 轮 + diff 校验 + 强制选择) | 1.5h | T5 | Spec 11 |
+| T5.13 | 确认点超时归档 (1h 提示 / 24h archive) | 1h | T5.5 | D15 |
+| T6.4 | 5 内置样式 DSL 实现 (D8) + theme fallback 配色 | 1.5h | T6 | Q5=A/G0-12 |
+| T7.x | 测试体系新增: LLM fixture 录制 + schema 验证 + 几何边界用例 + .pptx 完整性 + checkpoint resume | 4h | T1-T6 | G0-14/G1-26 |
+
+### 总工时修正
+
+| 阶段 | 原始 (h) | P0 增量 (h) | 修正 (h) |
+|------|----------|-------------|----------|
+| T1 StyleExtractor | 4 | +3.5 | 7.5 |
+| T2 LayoutComposer | 5 | +6 | 11 |
+| T3 PPTXBuilder | 5 | +7 | 12 |
+| T4 Preview Engine | 3 | +3 | 6 |
+| T5 Pipeline | 4 | +8.5 | 12.5 |
+| T6 Built-in Styles | 3 | +1.5 | 4.5 |
+| T7 Tests | 5 | +4 | 9 |
+| T0 (v3.1) | — | — | (推迟) |
+| **合计** | **29** | **+33.5** | **~62.5h** |
+
+注: 比 GAP-REPORT 预估 (~55h) 略高，原因为追加 T2.8 / T4.6 / T5.13 / T3.8 等细化任务。
+
+### 执行 DAG (v3.0)
+
+```
+T1 → T1.5 → T1.6 ──┐
+T2 → T2.1 → T2.6 → T2.7 → T2.8 ──┐
+T3 → T3.5,3.6,3.7,3.8 ──────────┤
+T4 → T4.5 → T4.6 ───────────────┤
+                                 ├→ T5 → T5.5 → T5.10..13 → T7
+T6 → T6.4 ───────────────────────┘
+```
+
+### 推迟到 v3.1 的任务
+
+- T0 多源解析器 (pdf/xlsx/url, ~6h)
+- G1-19 内置样式扩展到 10 种 (~3h)
+- G1-28 并发/多用户隔离 (~4h)
+- G1-29 结构化日志体系完整化 (~2h)
+- G1-32 跨平台字体差异统一处理 (~2h)
+
+### 里程碑
+
+- **M1** (T1-T2.7 完成): StyleExtractor + LayoutComposer 可独立产出 layout_plan.json 通过 schema 验证
+- **M2** (T3.x 完成): PPTXBuilder 可生成可打开的 .pptx (Spec 10 通过)
+- **M3** (T4.x 完成): SVG 预览 + LO 降级 + HTML 兜底链路打通
+- **M4** (T5.x 完成): 5 确认点 + session resume + LLM 降级全链路通
+- **M5** (T7 完成): 测试覆盖 + 河南移动 PPT 复测通过 = v3.0 GA
+
+---
+
+*P0 任务补丁结束。可启动 M1 编码。*

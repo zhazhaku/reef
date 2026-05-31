@@ -8,11 +8,28 @@ import (
 	"time"
 )
 
+
+// ActiveTurnInfo represents a running sub-turn from AgentLoop's perspective.
+type ActiveTurnInfo struct {
+	ID      string
+	Label   string
+	Task    string
+	Status  string
+	Created int64 // unix millis
+}
+
+// ActiveTurnsSource provides access to AgentLoop's active turn states.
+// AgentLoop implements this interface to allow spawn_status to see
+// sub-turns spawned via SpawnTool (which uses SpawnSubTurn, not SubagentManager).
+type ActiveTurnsSource interface {
+	GetActiveSubTurns(ctx context.Context) []ActiveTurnInfo
+}
 // SpawnStatusTool reports the status of subagents that were spawned via the
 // spawn tool. It can query a specific task by ID, or list every known task with
 // a summary count broken-down by status.
 type SpawnStatusTool struct {
-	manager *SubagentManager
+	manager           *SubagentManager
+	activeTurnsSource ActiveTurnsSource // Optional: query AgentLoop's active sub-turns
 }
 
 // NewSpawnStatusTool creates a SpawnStatusTool backed by the given manager.
@@ -46,6 +63,13 @@ func (t *SpawnStatusTool) Parameters() map[string]any {
 		},
 		"required": []string{},
 	}
+}
+
+
+// SetActiveTurnsSource injects an AgentLoop-backed source for querying
+// spawn'd sub-turns that are tracked in activeTurnStates (not SubagentManager.tasks).
+func (t *SpawnStatusTool) SetActiveTurnsSource(source ActiveTurnsSource) {
+	t.activeTurnsSource = source
 }
 
 func (t *SpawnStatusTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
@@ -90,6 +114,20 @@ func (t *SpawnStatusTool) Execute(ctx context.Context, args map[string]any) *Too
 	// ListTaskCopies returns consistent snapshots under the manager lock.
 	origTasks := t.manager.ListTaskCopies()
 	if len(origTasks) == 0 {
+		// Also check AgentLoop's active sub-turns (spawn tool uses SpawnSubTurn,
+		// which registers in activeTurnStates, not SubagentManager.tasks)
+		if t.activeTurnsSource != nil {
+			activeTurns := t.activeTurnsSource.GetActiveSubTurns(ctx)
+			if len(activeTurns) > 0 {
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("%d active sub-turn(s) from spawn tool:\n", len(activeTurns)))
+				for _, at := range activeTurns {
+					created := time.UnixMilli(at.Created).UTC().Format("2006-01-02 15:04:05 UTC")
+					sb.WriteString(fmt.Sprintf("- %s: status=%s created=%s\n  task: %s\n", at.ID, at.Status, created, at.Task))
+				}
+				return NewToolResult(sb.String())
+			}
+		}
 		return NewToolResult("No subagents have been spawned yet.")
 	}
 

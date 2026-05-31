@@ -404,7 +404,9 @@ func registerSharedTools(
 			}
 			if spawnStatusEnabled {
 				// Read-only status tool, fully independent.
-				agent.Tools.Register(tools.NewSpawnStatusTool(subagentManager))
+				statusTool := tools.NewSpawnStatusTool(subagentManager)
+				statusTool.SetActiveTurnsSource(al) // Wire AgentLoop for spawn'd sub-turns
+				agent.Tools.Register(statusTool)
 			}
 		}
 	}

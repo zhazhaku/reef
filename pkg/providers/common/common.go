@@ -130,12 +130,17 @@ func SerializeMessages(messages []Message) []any {
 
 		// Multipart content format for messages with media
 		parts := make([]map[string]any, 0, 1+len(m.Media))
-		if m.Content != "" {
-			parts = append(parts, map[string]any{
-				"type": "text",
-				"text": m.Content,
-			})
+		// MiMo (and some other providers) reject requests without a text part
+		// in multipart content. Always include a text element.
+		// Replace placeholder tags with a useful prompt for LLM consumption.
+		text := m.Content
+		if text == "" || text == "[empty message]" || text == "[image: photo]" {
+			text = "Please look at this image."
 		}
+		parts = append(parts, map[string]any{
+			"type": "text",
+			"text": text,
+		})
 		for _, mediaURL := range m.Media {
 			if strings.HasPrefix(mediaURL, "data:image/") {
 				parts = append(parts, map[string]any{

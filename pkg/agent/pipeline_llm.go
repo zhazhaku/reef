@@ -227,6 +227,7 @@ func (p *Pipeline) CallLLM(
 				"retry": retry,
 			})
 			exec.callMessages = stripMessageMedia(exec.callMessages)
+			exec.messages = stripMessageMedia(exec.messages)
 			if !ts.opts.NoHistory {
 				exec.history = stripMessageMedia(exec.history)
 				ts.agent.Sessions.SetHistory(ts.sessionKey, exec.history)
