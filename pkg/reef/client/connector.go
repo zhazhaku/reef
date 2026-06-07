@@ -58,6 +58,7 @@ type ConnectorOptions struct {
 	Providers         []string
 	Capacity          int
 	HeartbeatInterval time.Duration
+	MaxBackoff        time.Duration // Max reconnect backoff (0 = default 60s)
 	Logger            *slog.Logger
 	TLSCertFile       string // Client certificate (optional, for mutual TLS)
 	TLSKeyFile        string // Client key (optional, for mutual TLS)
@@ -76,6 +77,10 @@ func NewConnector(opts ConnectorOptions) *Connector {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	maxBackoff := opts.MaxBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = 60 * time.Second
+	}
 	return &Connector{
 		serverURL:         opts.ServerURL,
 		token:             opts.Token,
@@ -87,7 +92,7 @@ func NewConnector(opts ConnectorOptions) *Connector {
 		opts:              opts,
 		sendCh:            make(chan reef.Message, 64),
 		msgInCh:           make(chan reef.Message, 16),
-		backoff:           NewBackoff(1*time.Second, 60*time.Second),
+		backoff:           NewBackoff(1*time.Second, maxBackoff),
 		heartbeatInterval: opts.HeartbeatInterval,
 		logger:            opts.Logger,
 	}
@@ -120,6 +125,9 @@ func (c *Connector) Send(msg reef.Message) error {
 	case c.sendCh <- msg:
 		return nil
 	default:
+		// P2-A: Buffer full = connection likely broken, trigger reconnect.
+		c.logger.Warn("send buffer full, triggering reconnect")
+		go c.triggerReconnect()
 		return fmt.Errorf("send buffer full")
 	}
 }
@@ -263,6 +271,35 @@ func (c *Connector) dialAndRegister(ctx context.Context) error {
 	if err := c.writeMessage(ws, reg); err != nil {
 		ws.Close()
 		return fmt.Errorf("send register: %w", err)
+	}
+
+	// P1-B: Read register_ack to capture server-assigned client ID.
+	_, ackData, err := ws.ReadMessage()
+	if err != nil {
+		ws.Close()
+		return fmt.Errorf("read register_ack: %w", err)
+	}
+	var ackMsg reef.Message
+	if err := json.Unmarshal(ackData, &ackMsg); err != nil {
+		ws.Close()
+		return fmt.Errorf("unmarshal register_ack: %w", err)
+	}
+	switch ackMsg.MsgType {
+	case reef.MsgRegisterAck:
+		var ack reef.RegisterAckPayload
+		if err := ackMsg.DecodePayload(&ack); err != nil {
+			c.logger.Warn("decode register_ack payload failed", slog.String("error", err.Error()))
+		} else if c.clientID == "" && ack.ClientID != "" {
+			c.clientID = ack.ClientID
+			c.logger.Info("received assigned client ID from server", slog.String("client_id", ack.ClientID))
+		}
+	case reef.MsgRegisterNack:
+		var nack reef.RegisterNackPayload
+		_ = ackMsg.DecodePayload(&nack)
+		ws.Close()
+		return fmt.Errorf("registration rejected: %s", nack.Reason)
+	default:
+		c.logger.Warn("unexpected response to register", slog.String("msg_type", string(ackMsg.MsgType)))
 	}
 
 	c.backoff.Reset()

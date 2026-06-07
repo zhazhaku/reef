@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,29 +39,47 @@ type (
 
 const DefaultRequestTimeout = 120 * time.Second
 
-// NewHTTPClient creates an *http.Client with an optional proxy and the default timeout.
+// NewHTTPClient creates an *http.Client with an optional proxy, TCP keepalive,
+// and the default request timeout. TCP keepalive is essential for detecting
+// dead connections on mobile/Android environments where the network stack
+// may be frozen by power management.
 func NewHTTPClient(proxy string) *http.Client {
-	client := &http.Client{
-		Timeout: DefaultRequestTimeout,
+	// Build a dialer with aggressive TCP keepalive for mobile network resilience.
+	// On Android/Termux, Doze mode can freeze TCP sockets without triggering
+	// application-level timeouts. OS-level keepalive probes detect this quickly.
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
 	}
+
+	// Clone the default transport to preserve TLS, HTTP/2, and proxy settings.
+	var baseTransport *http.Transport
+	if bt, ok := http.DefaultTransport.(*http.Transport); ok {
+		baseTransport = bt.Clone()
+	} else {
+		baseTransport = &http.Transport{}
+	}
+	baseTransport.DialContext = dialer.DialContext
+	// Recycle idle connections quickly — stale connections after 60s are
+	// likely dead on mobile networks.
+	baseTransport.IdleConnTimeout = 60 * time.Second
+	baseTransport.TLSHandshakeTimeout = 10 * time.Second
+	baseTransport.ResponseHeaderTimeout = 30 * time.Second
+
+	client := &http.Client{
+		Timeout:   DefaultRequestTimeout,
+		Transport: baseTransport,
+	}
+
 	if proxy != "" {
 		parsed, err := url.Parse(proxy)
 		if err == nil {
-			// Preserve http.DefaultTransport settings (TLS, HTTP/2, timeouts, etc.)
-			if base, ok := http.DefaultTransport.(*http.Transport); ok {
-				tr := base.Clone()
-				tr.Proxy = http.ProxyURL(parsed)
-				client.Transport = tr
-			} else {
-				// Fallback: minimal transport if DefaultTransport is not *http.Transport.
-				client.Transport = &http.Transport{
-					Proxy: http.ProxyURL(parsed),
-				}
-			}
+			baseTransport.Proxy = http.ProxyURL(parsed)
 		} else {
 			log.Printf("common: invalid proxy URL %q: %v", proxy, err)
 		}
 	}
+
 	return client
 }
 

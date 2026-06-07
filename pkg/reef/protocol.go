@@ -26,6 +26,7 @@ const (
 	MsgCancel        MessageType = "cancel"
 	MsgPause         MessageType = "pause"
 	MsgResume        MessageType = "resume"
+	MsgShutdown      MessageType = "shutdown"
 	MsgControlAck    MessageType = "control_ack"
 
 	// Phase 6: Evolution Engine messages
@@ -48,7 +49,7 @@ func (mt MessageType) IsValid() bool {
 	switch mt {
 	case MsgRegister, MsgRegisterAck, MsgRegisterNack, MsgHeartbeat,
 		MsgTaskDispatch, MsgTaskProgress, MsgTaskCompleted, MsgTaskFailed,
-		MsgCancel, MsgPause, MsgResume, MsgControlAck:
+		MsgCancel, MsgPause, MsgResume, MsgShutdown, MsgControlAck:
 		return true
 	// Phase 6: Evolution Engine messages
 	case MsgGeneSubmit, MsgGeneApproved, MsgGeneRejected, MsgGeneBroadcast,
@@ -182,6 +183,11 @@ type ControlAckPayload struct {
 	ControlType string `json:"control_type"`
 	TaskID      string `json:"task_id"`
 	Timestamp   int64  `json:"timestamp"`
+}
+
+// ShutdownPayload is sent by Server to request a graceful client shutdown.
+type ShutdownPayload struct {
+	Reason string `json:"reason,omitempty"` // optional human-readable reason
 }
 
 // ---- Phase 6-7: Evolution + Raft Payloads ----

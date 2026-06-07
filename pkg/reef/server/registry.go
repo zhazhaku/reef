@@ -130,6 +130,22 @@ func (r *Registry) ScanStale(timeout time.Duration) []string {
 	return staleIDs
 }
 
+// CleanupDisconnected removes clients that have been disconnected for longer than maxAge.
+// Returns the number of removed clients.
+func (r *Registry) CleanupDisconnected(maxAge time.Duration) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	removed := 0
+	for id, c := range r.clients {
+		if c.State == reef.ClientDisconnected && now.Sub(c.LastHeartbeat) > maxAge {
+			delete(r.clients, id)
+			removed++
+		}
+	}
+	return removed
+}
+
 // IncrementLoad atomically increments a client's current load.
 func (r *Registry) IncrementLoad(clientID string) bool {
 	r.mu.Lock()

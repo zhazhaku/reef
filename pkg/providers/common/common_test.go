@@ -38,8 +38,8 @@ func TestNewHTTPClient_WithProxy(t *testing.T) {
 
 func TestNewHTTPClient_NoProxy(t *testing.T) {
 	client := NewHTTPClient("")
-	if client.Transport != nil {
-		t.Errorf("expected nil transport without proxy, got %T", client.Transport)
+	if client.Transport == nil {
+		t.Errorf("expected non-nil transport (TCP keepalive always enabled), got nil")
 	}
 }
 

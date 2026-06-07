@@ -17,7 +17,8 @@ import (
 type AdminServer struct {
 	registry     *Registry
 	scheduler    *Scheduler
-	token        string // Bearer token for admin API authentication; empty = no auth
+	wsServer     *WebSocketServer // for sending control messages to clients
+	token        string           // Bearer token for admin API authentication; empty = no auth
 	logger       *slog.Logger
 	evolutionHub *evolutionsrv.EvolutionHub
 	skillMerger  *evolutionsrv.SkillMergerImpl
@@ -41,6 +42,7 @@ func (a *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/evolution/status", a.authMiddleware(a.handleEvolutionStatus))
 	mux.HandleFunc("/admin/skills/approve", a.authMiddleware(a.handleSkillApprove))
 	mux.HandleFunc("/admin/skills/reject", a.authMiddleware(a.handleSkillReject))
+	mux.HandleFunc("/admin/clients/shutdown", a.authMiddleware(a.handleClientShutdown))
 	mux.HandleFunc("/tasks", a.authMiddleware(a.handleSubmitTask))
 }
 
@@ -52,6 +54,11 @@ func (a *AdminServer) SetEvolutionHub(hub *evolutionsrv.EvolutionHub) {
 // SetSkillMerger sets the skill merger for the admin server.
 func (a *AdminServer) SetSkillMerger(merger *evolutionsrv.SkillMergerImpl) {
 	a.skillMerger = merger
+}
+
+// SetWebSocketServer sets the WebSocket server for sending control messages.
+func (a *AdminServer) SetWebSocketServer(ws *WebSocketServer) {
+	a.wsServer = ws
 }
 
 // authMiddleware wraps a handler with Bearer token authentication.
@@ -467,5 +474,97 @@ func (a *AdminServer) handleSkillReject(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":   "rejected",
 		"draft_id": req.DraftID,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Client Shutdown
+// ---------------------------------------------------------------------------
+
+// ShutdownRequest is the JSON body for /admin/clients/shutdown.
+type ShutdownRequest struct {
+	ClientID string `json:"client_id"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// handleClientShutdown sends a shutdown message to one or all connected clients.
+// POST /admin/clients/shutdown
+//
+//	{ "client_id": "xxx", "reason": "maintenance" }
+func (a *AdminServer) handleClientShutdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.wsServer == nil {
+		http.Error(w, "websocket server not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req ShutdownRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	shutdownMsg, err := reef.NewMessage(reef.MsgShutdown, "", reef.ShutdownPayload{
+		Reason: req.Reason,
+	})
+	if err != nil {
+		http.Error(w, "internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Shutdown a specific client
+	if req.ClientID != "" {
+		if err := a.wsServer.SendMessage(req.ClientID, shutdownMsg); err != nil {
+			a.logger.Warn("shutdown send failed",
+				slog.String("client_id", req.ClientID),
+				slog.String("error", err.Error()))
+			http.Error(w, fmt.Sprintf("failed to send shutdown to client %s: %s", req.ClientID, err.Error()), http.StatusNotFound)
+			return
+		}
+		a.logger.Info("shutdown sent to client",
+			slog.String("client_id", req.ClientID),
+			slog.String("reason", req.Reason))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":    "shutdown_sent",
+			"client_id": req.ClientID,
+		})
+		return
+	}
+
+	// Shutdown all connected clients
+	all := a.registry.List()
+	var shutdownAll []string
+	var failed []string
+	for _, c := range all {
+		if c.State != reef.ClientConnected {
+			continue
+		}
+		if err := a.wsServer.SendMessage(c.ID, shutdownMsg); err != nil {
+			failed = append(failed, c.ID)
+			a.logger.Warn("shutdown send failed",
+				slog.String("client_id", c.ID),
+				slog.String("error", err.Error()))
+		} else {
+			shutdownAll = append(shutdownAll, c.ID)
+		}
+	}
+
+	a.logger.Info("shutdown broadcast",
+		slog.Int("sent", len(shutdownAll)),
+		slog.Int("failed", len(failed)))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "shutdown_broadcast",
+		"sent":     shutdownAll,
+		"failed":   failed,
+		"reason":   req.Reason,
 	})
 }

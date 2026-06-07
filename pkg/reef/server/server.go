@@ -218,6 +218,7 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 
 	// Admin server
 	s.admin = NewAdminServer(s.registry, s.scheduler, cfg.Token, logger)
+	s.admin.SetWebSocketServer(s.wsServer)
 
 	// Web UI dashboard
 	s.ui = ui.NewHandler(s.registry, s.scheduler, time.Now(), logger)
@@ -363,11 +364,18 @@ func (s *Server) Stop() error {
 func (s *Server) heartbeatScanner(ctx context.Context) {
 	ticker := time.NewTicker(s.config.HeartbeatScan)
 	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(1 * time.Minute)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-cleanupTicker.C:
+			removed := s.registry.CleanupDisconnected(10 * time.Minute)
+			if removed > 0 {
+				s.logger.Info("cleaned up disconnected clients", slog.Int("count", removed))
+			}
 		case <-ticker.C:
 			staleIDs := s.registry.ScanStale(s.config.HeartbeatTimeout)
 			for _, id := range staleIDs {

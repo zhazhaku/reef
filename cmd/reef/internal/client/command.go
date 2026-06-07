@@ -19,6 +19,7 @@ import (
 	"github.com/zhazhaku/reef/pkg/config"
 	"github.com/zhazhaku/reef/pkg/logger"
 	"github.com/zhazhaku/reef/pkg/providers"
+	"github.com/zhazhaku/reef/pkg/reef"
 	"github.com/zhazhaku/reef/pkg/reef/client"
 	"github.com/zhazhaku/reef/pkg/utils"
 )
@@ -165,7 +166,7 @@ func runClient(cfg *config.Config, connectorOpts client.ConnectorOptions, debug 
 	fmt.Println("Press Ctrl+C to stop")
 
 	// Process incoming messages
-	go processMessages(ctx, connector, runner)
+	go processMessages(ctx, cancel, connector, runner)
 
 	// Block until context is done
 	<-ctx.Done()
@@ -175,7 +176,7 @@ func runClient(cfg *config.Config, connectorOpts client.ConnectorOptions, debug 
 }
 
 // processMessages handles incoming messages from the Reef Server.
-func processMessages(ctx context.Context, connector *client.Connector, runner *client.TaskRunner) {
+func processMessages(ctx context.Context, cancel context.CancelFunc, connector *client.Connector, runner *client.TaskRunner) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -222,6 +223,18 @@ func processMessages(ctx context.Context, connector *client.Connector, runner *c
 					continue
 				}
 				runner.ResumeTask(payload.TaskID)
+
+			case "shutdown":
+				var payload reef.ShutdownPayload
+				_ = msg.DecodePayload(&payload)
+				reason := payload.Reason
+				if reason == "" {
+					reason = "requested by server"
+				}
+				fmt.Printf("\n🛑 Shutdown received: %s\n", reason)
+				fmt.Println("   Waiting for running tasks to finish...")
+				cancel() // triggers context cancellation → graceful shutdown
+				return
 			}
 		}
 	}

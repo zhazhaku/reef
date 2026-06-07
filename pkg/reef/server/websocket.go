@@ -95,6 +95,30 @@ func (s *WebSocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.conns.Store(conn.id, conn)
 	s.logger.Info("client connected", slog.String("client_id", conn.id))
 
+	// P1-A: WebSocket-level ping/pong for rapid dead-connection detection.
+	// Without this, silent TCP disconnects take ~2 hours (OS keepalive) to detect.
+	conn.ws.SetPongHandler(func(string) error {
+		conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+	go func() {
+		pingTicker := time.NewTicker(30 * time.Second)
+		defer pingTicker.Stop()
+		for range pingTicker.C {
+			conn.mu.Lock()
+			if conn.closed {
+				conn.mu.Unlock()
+				return
+			}
+			conn.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			err := conn.ws.WriteMessage(websocket.PingMessage, nil)
+			conn.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	go conn.writeLoop()
 	go conn.readLoop(s)
 }
@@ -173,6 +197,9 @@ func (c *Conn) readLoop(s *WebSocketServer) {
 		s.logger.Info("client disconnected", slog.String("client_id", c.id))
 	}()
 
+	// P1-A: Set initial read deadline; pong handler resets it on each pong.
+	c.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 	for {
 		_, data, err := c.ws.ReadMessage()
 		if err != nil {
@@ -200,6 +227,8 @@ func (c *Conn) readLoop(s *WebSocketServer) {
 		}
 
 		s.handleMessage(c, msg)
+		// P1-A: Reset read deadline after successful message read.
+		c.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 	}
 }
 
@@ -359,7 +388,7 @@ func (s *WebSocketServer) SendMessage(clientID string, msg reef.Message) error {
 
 func isControlMessage(mt reef.MessageType) bool {
 	switch mt {
-	case reef.MsgCancel, reef.MsgPause, reef.MsgResume:
+	case reef.MsgCancel, reef.MsgPause, reef.MsgResume, reef.MsgShutdown:
 		return true
 	}
 	return false
