@@ -709,6 +709,7 @@ func (al *AgentLoop) runAgentLoop(
 			SessionKey:   sessionKey,
 			Scope:        scope,
 			Content:      content,
+			Thought:      result.finalReasoning,
 			ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
 		})
 	}

@@ -81,9 +81,10 @@ const (
 // =============================================================================
 
 type turnResult struct {
-	finalContent string
-	status       TurnEndStatus
-	followUps    []bus.InboundMessage
+	finalContent    string
+	finalReasoning  string
+	status          TurnEndStatus
+	followUps       []bus.InboundMessage
 }
 
 // =============================================================================
@@ -117,7 +118,8 @@ type turnExecution struct {
 	summary         string
 
 	// Turn output
-	finalContent string
+	finalContent     string
+	reasoningContent string // accumulated reasoning from all LLM iterations
 
 	// Iteration tracking
 	iteration int

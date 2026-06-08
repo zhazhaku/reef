@@ -31,9 +31,10 @@ func (p *Pipeline) Finalize(
 		}
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
-			finalContent: finalContent,
-			status:       turnStatus,
-			followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+			finalContent:   finalContent,
+			finalReasoning: exec.reasoningContent,
+			status:         turnStatus,
+			followUps:     append([]bus.InboundMessage(nil), ts.followUps...),
 		}, nil
 	}
 
@@ -75,8 +76,9 @@ func (p *Pipeline) Finalize(
 
 	ts.setPhase(TurnPhaseCompleted)
 	return turnResult{
-		finalContent: finalContent,
-		status:       turnStatus,
-		followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+		finalContent:   finalContent,
+		finalReasoning: exec.reasoningContent,
+		status:         turnStatus,
+		followUps:     append([]bus.InboundMessage(nil), ts.followUps...),
 	}, nil
 }

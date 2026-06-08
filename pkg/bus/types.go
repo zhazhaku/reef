@@ -84,6 +84,7 @@ type OutboundMessage struct {
 	SessionKey       string         `json:"session_key,omitempty"`
 	Scope            *OutboundScope `json:"scope,omitempty"`
 	Content          string         `json:"content"`
+	Thought          string         `json:"thought,omitempty"`
 	ReplyToMessageID string         `json:"reply_to_message_id,omitempty"`
 	ContextUsage     *ContextUsage  `json:"context_usage,omitempty"`
 }

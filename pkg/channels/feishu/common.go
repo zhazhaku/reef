@@ -42,6 +42,52 @@ func buildMarkdownCard(content string) (string, error) {
 	return string(data), nil
 }
 
+// buildDivExtraCard builds a Feishu Interactive Card with a foldable thinking process section.
+// The main content is shown prominently, and the thinking/thought process is displayed
+// in a div+extra foldable panel that users can tap to expand.
+func buildDivExtraCard(content, thought string) (string, error) {
+	elements := []map[string]any{
+		{
+			"tag":     "markdown",
+			"content": content,
+		},
+	}
+
+	// Add foldable thinking panel if thought content is present
+	if strings.TrimSpace(thought) != "" {
+		// Truncate thought to avoid exceeding card element limits (5000 runes max)
+		thoughtRunes := []rune(thought)
+		const maxThoughtRunes = 5000
+		if len(thoughtRunes) > maxThoughtRunes {
+			thought = string(thoughtRunes[:maxThoughtRunes-3]) + "..."
+		}
+
+		elements = append(elements, map[string]any{
+			"tag": "div",
+			"text": map[string]any{
+				"tag":     "plain_text",
+				"content": "💭 思考过程",
+			},
+			"extra": map[string]any{
+				"tag":     "lark_md",
+				"content": thought,
+			},
+		})
+	}
+
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": elements,
+		},
+	}
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // extractJSONStringField unmarshals content as JSON and returns the value of the given string field.
 // Returns "" if the content is invalid JSON or the field is missing/empty.
 func extractJSONStringField(content, field string) string {

@@ -464,6 +464,15 @@ func (p *Pipeline) CallLLM(
 	}
 
 	reasoningContent := responseReasoningContent(exec.response)
+
+	// Accumulate reasoning across iterations for final thought display
+	if reasoningContent != "" {
+		if exec.reasoningContent != "" {
+			exec.reasoningContent += "\n\n"
+		}
+		exec.reasoningContent += reasoningContent
+	}
+
 	shouldPublishPicoToolCallInterim := ts.channel == "pico" && len(exec.response.ToolCalls) > 0
 	if shouldPublishPicoToolCallInterim {
 		// Pico tool-call turns publish their reasoning/content/tool summary as a

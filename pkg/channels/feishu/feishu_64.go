@@ -182,7 +182,13 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	if isToolFeedback {
 		sendContent = channels.InitialAnimatedToolFeedbackContent(msg.Content)
 	}
-	cardContent, err := buildMarkdownCard(sendContent)
+	var cardContent string
+	var err error
+	if msg.Thought != "" && !isToolFeedback {
+		cardContent, err = buildDivExtraCard(sendContent, msg.Thought)
+	} else {
+		cardContent, err = buildMarkdownCard(sendContent)
+	}
 	if err != nil {
 		// If card build fails, fall back to plain text
 		msgID, sendErr := c.sendText(ctx, msg.ChatID, sendContent)
