@@ -43,7 +43,7 @@ func TestAgentLoop_MountProcessHook_LLMAndObserver(t *testing.T) {
 		t.Fatalf("MountProcessHook failed: %v", err)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -83,7 +83,7 @@ func TestAgentLoop_MountProcessHook_ToolRewrite(t *testing.T) {
 		t.Fatalf("MountProcessHook failed: %v", err)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -149,7 +149,7 @@ func TestAgentLoop_MountProcessHook_ApprovalDeny(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -228,7 +228,7 @@ func TestAgentLoop_MountProcessHook_IsolationSupportsRelativeDirAndCommand(t *te
 		t.Fatalf("MountProcessHook failed with relative dir/command under isolation: %v", mountErr)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-relative",
 		Channel:         "cli",
 		ChatID:          "direct",

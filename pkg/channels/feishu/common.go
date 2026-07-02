@@ -53,7 +53,7 @@ func buildDivExtraCard(content, thought string) (string, error) {
 		},
 	}
 
-	// Add foldable thinking panel if thought content is present
+	// Add thinking process section if thought content is present
 	if strings.TrimSpace(thought) != "" {
 		// Truncate thought to avoid exceeding card element limits (5000 runes max)
 		thoughtRunes := []rune(thought)
@@ -63,15 +63,8 @@ func buildDivExtraCard(content, thought string) (string, error) {
 		}
 
 		elements = append(elements, map[string]any{
-			"tag": "div",
-			"text": map[string]any{
-				"tag":     "plain_text",
-				"content": "💭 思考过程",
-			},
-			"extra": map[string]any{
-				"tag":     "lark_md",
-				"content": thought,
-			},
+			"tag":     "markdown",
+			"content": "\n\n---\n💭 **思考过程**\n\n" + thought,
 		})
 	}
 
@@ -197,4 +190,78 @@ func extractImageKeysRecursive(v any, feishuKeys, externalURLs *[]string) {
 // VoiceCapabilities returns the voice capabilities of the channel.
 func (c *FeishuChannel) VoiceCapabilities() channels.VoiceCapabilities {
 	return channels.VoiceCapabilities{ASR: true, TTS: true}
+}
+
+// buildThinkingCard builds a Feishu Interactive Card for progressive thinking display.
+// The thinking content is shown as the primary card body with a "💭 思考中..." header.
+// This card is intended to be patched (PatchMessage) as reasoning accumulates.
+func buildThinkingCard(reasoning string) (string, error) {
+	// Truncate reasoning to reasonable length
+	reasoningRunes := []rune(reasoning)
+	const maxRunes = 4500
+	if len(reasoningRunes) > maxRunes {
+		reasoning = string(reasoningRunes[:maxRunes-3]) + "..."
+	}
+
+	card := map[string]any{
+		"schema": "2.0",
+		"header": map[string]any{
+			"title": map[string]any{
+				"tag":     "plain_text",
+				"content": "💭 思考过程",
+			},
+			"template": "blue",
+		},
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{
+					"tag":     "markdown",
+					"content": reasoning,
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// buildFinalCard builds the final Feishu Interactive Card after all thinking
+// is complete.  The answer is shown in the body, and a condensed thinking
+// summary is placed in the note element at the bottom.
+func buildFinalCard(answer, reasoningSummary string) (string, error) {
+	elements := []map[string]any{
+		{
+			"tag":     "markdown",
+			"content": answer,
+		},
+	}
+
+	if strings.TrimSpace(reasoningSummary) != "" {
+		// Truncate reasoning summary
+		summaryRunes := []rune(reasoningSummary)
+		const maxSummaryRunes = 800
+		if len(summaryRunes) > maxSummaryRunes {
+			reasoningSummary = string(summaryRunes[:maxSummaryRunes-3]) + "..."
+		}
+
+		elements = append(elements, map[string]any{
+			"tag":     "markdown",
+			"content": "\n\n---\n💭 **思考过程**：\n\n" + reasoningSummary,
+		})
+	}
+
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": elements,
+		},
+	}
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

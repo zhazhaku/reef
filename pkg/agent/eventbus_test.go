@@ -130,7 +130,7 @@ func TestAgentLoop_EmitsMinimalTurnEvents(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+	response, _, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -423,7 +423,7 @@ func TestAgentLoop_EmitsContextCompressEventOnRetry(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -578,7 +578,7 @@ func TestAgentLoop_EmitsFollowUpQueuedEvent(t *testing.T) {
 	sub := al.SubscribeEvents(32)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",

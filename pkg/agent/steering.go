@@ -307,7 +307,7 @@ func (al *AgentLoop) continueWithSteeringMessages(
 			ChatType: inferChatTypeFromSessionScope(scope),
 		}
 	}
-	return al.runAgentLoop(ctx, agent, processOptions{
+	response, _, err := al.runAgentLoop(ctx, agent, processOptions{
 		Dispatch:                dispatch,
 		DefaultResponse:         defaultResponse,
 		EnableSummary:           true,
@@ -315,6 +315,7 @@ func (al *AgentLoop) continueWithSteeringMessages(
 		InitialSteeringMessages: steeringMsgs,
 		SkipInitialSteeringPoll: true,
 	})
+	return response, err
 }
 
 func (al *AgentLoop) agentForSession(sessionKey string) *AgentInstance {

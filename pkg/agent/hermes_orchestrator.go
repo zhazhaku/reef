@@ -1309,12 +1309,22 @@ func (o *HermesOrchestrator) generateDesign(ctx context.Context, session *Workfl
 	ctx, cancel := context.WithTimeout(context.Background(), o.llmTimeout)
 	defer cancel()
 
-	resp, err := provider.Chat(ctx, []providers.Message{
-		{Role: "user", Content: prompt},
-	}, nil, model, map[string]any{
-		"temperature": 0.3,
-		"thinking_level": "xhigh",
-	})
+	resp, err := func() (*providers.LLMResponse, error) {
+		if sp, ok := provider.(providers.StreamingProvider); ok {
+			return sp.ChatStream(ctx, []providers.Message{
+				{Role: "user", Content: prompt},
+			}, nil, model, map[string]any{
+				"temperature":    0.3,
+				"thinking_level": "xhigh",
+			}, nil)
+		}
+		return provider.Chat(ctx, []providers.Message{
+			{Role: "user", Content: prompt},
+		}, nil, model, map[string]any{
+			"temperature":    0.3,
+			"thinking_level": "xhigh",
+		})
+	}()
 	if err != nil {
 		return "", fmt.Errorf("design: %w", err)
 	}
@@ -1488,12 +1498,22 @@ func (o *HermesOrchestrator) generateReport(ctx context.Context, session *Workfl
 	ctx, cancel := context.WithTimeout(context.Background(), o.llmTimeout)
 	defer cancel()
 
-	resp, err := provider.Chat(ctx, []providers.Message{
-		{Role: "user", Content: prompt},
-	}, nil, model, map[string]any{
-		"temperature": 0.2,
-		"thinking_level": "xhigh",
-	})
+	resp, err := func() (*providers.LLMResponse, error) {
+		if sp, ok := provider.(providers.StreamingProvider); ok {
+			return sp.ChatStream(ctx, []providers.Message{
+				{Role: "user", Content: prompt},
+			}, nil, model, map[string]any{
+				"temperature":    0.2,
+				"thinking_level": "xhigh",
+			}, nil)
+		}
+		return provider.Chat(ctx, []providers.Message{
+			{Role: "user", Content: prompt},
+		}, nil, model, map[string]any{
+			"temperature":    0.2,
+			"thinking_level": "xhigh",
+		})
+	}()
 	if err != nil {
 		return "", fmt.Errorf("report: %w", err)
 	}

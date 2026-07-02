@@ -28,7 +28,7 @@ var ReefDashboard = (function() {
         if (chartJsLoading) return;
         chartJsLoading = true;
         var script = document.createElement('script');
-        script.src = '/ui/static/js/lib/chart.js';
+        script.src = '/ui/js/lib/chart.js';
         script.onload = function() {
             chartJsLoaded = true;
             chartJsLoading = false;

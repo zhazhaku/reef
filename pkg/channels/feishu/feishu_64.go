@@ -52,6 +52,12 @@ type FeishuChannel struct {
 
 	progress        *channels.ToolFeedbackAnimator
 	deleteMessageFn func(context.Context, string, string) error
+
+	thinkingCards sync.Map // chatID -> *thinkingCardState
+}
+
+type thinkingCardState struct {
+	messageID string
 }
 
 type cachedMessage struct {
@@ -157,6 +163,13 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		return nil, fmt.Errorf("chat ID is empty: %w", channels.ErrSendFailed)
 	}
 
+	// Handle progressive thinking card messages for feishu channel.
+	// thinking_card: create or patch a dedicated thinking card.
+	// thinking_final: replace the thinking card with the final answer.
+	if kind := msg.Context.Raw["message_kind"]; kind == "thinking_card" || kind == "thinking_final" {
+		return c.handleThinkingCardMessage(ctx, msg)
+	}
+
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	if isToolFeedback {
 		if msgID, handled, err := c.progress.Update(ctx, msg.ChatID, msg.Content); handled {
@@ -184,7 +197,36 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	}
 	var cardContent string
 	var err error
+
+	// If we have a thought AND a progressive thinking card exists,
+	// finalize the thinking card with the answer + thought summary.
 	if msg.Thought != "" && !isToolFeedback {
+		if state, ok := c.thinkingCards.LoadAndDelete(msg.ChatID); ok {
+			thinkingMsgID := state.(*thinkingCardState).messageID
+			// Build final card replacing the thinking card
+			finalContent, finalErr := buildFinalCard(sendContent, msg.Thought)
+			if finalErr == nil {
+				patchErr := c.patchCard(ctx, thinkingMsgID, finalContent)
+				if patchErr == nil {
+					logger.DebugCF("feishu", "Finalized thinking card with answer",
+						map[string]any{"message_id": thinkingMsgID, "chat_id": msg.ChatID})
+					return []string{thinkingMsgID}, nil
+				}
+				// Patch failed — delete the stale thinking card and fall through
+				// to buildDivExtraCard which sends a new card with answer+thought.
+				logger.DebugCF("feishu", "Patch thinking card failed, falling back", map[string]any{
+					"error": patchErr.Error(),
+				})
+				c.deleteMessageAPI(ctx, msg.ChatID, thinkingMsgID)
+			} else {
+				// buildFinalCard failed — delete the stale thinking card
+				logger.DebugCF("feishu", "buildFinalCard failed", map[string]any{
+					"error": finalErr.Error(),
+				})
+				c.deleteMessageAPI(ctx, msg.ChatID, thinkingMsgID)
+			}
+		}
+		// No thinking card or finalize failed — use div+extra card as before
 		cardContent, err = buildDivExtraCard(sendContent, msg.Thought)
 	} else {
 		cardContent, err = buildMarkdownCard(sendContent)
@@ -241,6 +283,157 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 
 	// For other errors, return the original card error
 	return nil, err
+}
+
+// handleThinkingCardMessage processes progressive thinking card messages.
+// thinking_card: creates or patches a thinking-only card.
+// thinking_final: replaces the thinking card with the final answer card.
+func (c *FeishuChannel) handleThinkingCardMessage(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
+	kind := msg.Context.Raw["message_kind"]
+	chatID := msg.ChatID
+
+	switch kind {
+	case "thinking_card":
+		return c.handleThinkingCard(ctx, chatID, msg.Content)
+	case "thinking_final":
+		return c.handleThinkingFinal(ctx, chatID, msg.Content)
+	default:
+		return nil, fmt.Errorf("feishu: unknown thinking card kind: %s", kind)
+	}
+}
+
+// handleThinkingCard creates or patches the progressive thinking card.
+func (c *FeishuChannel) handleThinkingCard(ctx context.Context, chatID, reasoning string) ([]string, error) {
+	if existing, ok := c.thinkingCards.Load(chatID); ok {
+		state := existing.(*thinkingCardState)
+		return c.patchThinkingCard(ctx, state.messageID, reasoning)
+	}
+	return c.createThinkingCard(ctx, chatID, reasoning)
+}
+
+// createThinkingCard sends a new thinking card and tracks its message ID.
+func (c *FeishuChannel) createThinkingCard(ctx context.Context, chatID, reasoning string) ([]string, error) {
+	cardContent, err := buildThinkingCard(reasoning)
+	if err != nil {
+		return nil, fmt.Errorf("feishu thinking card: %w", err)
+	}
+
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(cardContent).
+			Build()).
+		Build()
+
+	resp, err := c.client.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("feishu thinking card create: %w", channels.ErrTemporary)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return nil, fmt.Errorf("feishu thinking card api error (code=%d msg=%s): %w",
+			resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+
+	if resp.Data == nil || resp.Data.MessageId == nil {
+		return nil, fmt.Errorf("feishu thinking card: no message_id returned")
+	}
+
+	msgID := *resp.Data.MessageId
+	c.thinkingCards.Store(chatID, &thinkingCardState{messageID: msgID})
+
+	logger.DebugCF("feishu", "Thinking card created", map[string]any{
+		"chat_id":    chatID,
+		"message_id": msgID,
+	})
+	return []string{msgID}, nil
+}
+
+// patchThinkingCard updates an existing thinking card with new reasoning content.
+func (c *FeishuChannel) patchThinkingCard(ctx context.Context, messageID, reasoning string) ([]string, error) {
+	cardContent, err := buildThinkingCard(reasoning)
+	if err != nil {
+		return nil, fmt.Errorf("feishu thinking card patch: %w", err)
+	}
+
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().Content(cardContent).Build()).
+		Build()
+
+	resp, err := c.client.Im.V1.Message.Patch(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("feishu thinking card patch: %w", err)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return nil, fmt.Errorf("feishu thinking card patch api error (code=%d msg=%s): %w",
+			resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+
+	return []string{messageID}, nil
+}
+
+// handleThinkingFinal replaces the thinking card with the final answer card.
+func (c *FeishuChannel) handleThinkingFinal(ctx context.Context, chatID, reasoningSummary string) ([]string, error) {
+	existing, ok := c.thinkingCards.LoadAndDelete(chatID)
+	if !ok {
+		// No thinking card to finalize — nothing to do.
+		return nil, nil
+	}
+	state := existing.(*thinkingCardState)
+
+	// Build final card: no body content needed — the main answer comes separately.
+	// Just dismiss the thinking card by deleting it.
+	if err := c.deleteThinkingCard(ctx, state.messageID); err != nil {
+		logger.DebugCF("feishu", "Failed to delete thinking card", map[string]any{
+			"message_id": state.messageID,
+			"error":      err.Error(),
+		})
+	}
+
+	logger.DebugCF("feishu", "Thinking card finalized", map[string]any{
+		"chat_id":    chatID,
+		"message_id": state.messageID,
+	})
+	return nil, nil
+}
+
+// deleteThinkingCard deletes a thinking card message.
+func (c *FeishuChannel) deleteThinkingCard(ctx context.Context, messageID string) error {
+	req := larkim.NewDeleteMessageReqBuilder().
+		MessageId(messageID).
+		Build()
+
+	resp, err := c.client.Im.V1.Message.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu thinking card delete: %w", err)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu thinking card delete api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	return nil
+}
+
+// patchCard patches a card message with raw card content (already JSON).
+func (c *FeishuChannel) patchCard(ctx context.Context, messageID, cardContent string) error {
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().Content(cardContent).Build()).
+		Build()
+
+	resp, err := c.client.Im.V1.Message.Patch(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu patch card: %w", err)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu patch card api error (code=%d msg=%s)", resp.Code, resp.Msg)
+	}
+	return nil
 }
 
 // EditMessage implements channels.MessageEditor.

@@ -13,5 +13,6 @@ type Queue interface {
 	Peek() *reef.Task
 	Len() int
 	Snapshot() []*reef.Task
+	Remove(taskID string) bool
 	Expire(now time.Time) []*reef.Task
 }

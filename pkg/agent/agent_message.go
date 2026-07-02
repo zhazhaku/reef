@@ -62,7 +62,8 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 		SessionKey: sessionKey,
 	}
 
-	return al.processMessage(ctx, msg)
+	response, _, err := al.processMessage(ctx, msg)
+	return response, err
 }
 
 func (al *AgentLoop) ProcessHeartbeat(
@@ -92,7 +93,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 			SenderID: "heartbeat",
 		}
 	}
-	return al.runAgentLoop(ctx, agent, processOptions{
+	response, _, err := al.runAgentLoop(ctx, agent, processOptions{
 		Dispatch:             dispatch,
 		DefaultResponse:      defaultResponse,
 		EnableSummary:        false,
@@ -100,9 +101,10 @@ func (al *AgentLoop) ProcessHeartbeat(
 		SuppressToolFeedback: true,
 		NoHistory:            true, // Don't load session history for heartbeat
 	})
+	return response, err
 }
 
-func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
+func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, string, error) {
 	msg = bus.NormalizeInboundMessage(msg)
 
 	// Add message preview to log (show full content for error messages)
@@ -134,12 +136,13 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 
 	// Route system messages to processSystemMessage
 	if msg.Channel == "system" {
-		return al.processSystemMessage(ctx, msg)
+		response, err := al.processSystemMessage(ctx, msg)
+		return response, "", err
 	}
 
 	route, agent, routeErr := al.resolveMessageRoute(msg)
 	if routeErr != nil {
-		return "", routeErr
+		return "", "", routeErr
 	}
 
 	allocation := al.allocateRouteSession(route, msg)
@@ -188,7 +191,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// context-dependent commands check their own Runtime fields and report
 	// "unavailable" when the required capability is nil.
 	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
-		return response, nil
+		return response, "", nil
 	}
 
 	if pending := al.takePendingSkills(opts.Dispatch.SessionKey); len(pending) > 0 {
@@ -293,10 +296,11 @@ func (al *AgentLoop) processSystemMessage(
 		}
 	}
 
-	return al.runAgentLoop(ctx, agent, processOptions{
+	response, _, err := al.runAgentLoop(ctx, agent, processOptions{
 		Dispatch:        dispatch,
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,
 	})
+	return response, err
 }

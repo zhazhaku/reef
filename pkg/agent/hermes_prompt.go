@@ -72,7 +72,8 @@ func buildHermesRolePrompt(mode HermesMode) string {
 func buildCoordinatorPrompt() string {
 	var b strings.Builder
 
-	b.WriteString("# Hermes Role: Team Coordinator\n\n")
+	b.WriteString("# Hermes Role: Team Coordinator — 始终用中文思考\n\n")
+	b.WriteString("Always think and reason in Chinese (始终用中文思考).\n\n")
 	b.WriteString("You are a **Team Coordinator** in a multi-agent system. Your role is to:\n\n")
 	b.WriteString("1. **Understand** the user's request\n")
 	b.WriteString("2. **Decide** whether to handle it directly (simple greeting/meta-question) or delegate (complex task)\n")
@@ -97,7 +98,8 @@ func buildCoordinatorPrompt() string {
 // buildExecutorPrompt generates the executor role prompt.
 func buildExecutorPrompt() string {
 	return fmt.Sprintf(
-		"# Hermes Role: Task Executor\n\n" +
+		"# Hermes Role: Task Executor — 始终用中文思考\n\n" +
+			"Always think and reason in Chinese (始终用中文思考).\n\n" +
 			"You are a **Task Executor** in a multi-agent system. Your role is to:\n\n" +
 			"1. **Receive** tasks delegated by the coordinator\n" +
 			"2. **Execute** tasks using your specialized capabilities and tools\n" +

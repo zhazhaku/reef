@@ -39,7 +39,7 @@ func (s *stubJobExecutor) ProcessDirectWithChannel(
 
 func (s *stubJobExecutor) PublishResponseIfNeeded(
 	_ context.Context,
-	channel, chatID, sessionKey, response string,
+	channel, chatID, sessionKey, response, thought string,
 ) {
 	if s.alreadySent {
 		return

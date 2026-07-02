@@ -388,6 +388,43 @@ func (s *Scheduler) HandleTaskFailed(taskID string, taskErr *reef.TaskError, att
 	return nil
 }
 
+// HandleTaskCancelled cancels a task. Unlike HandleTaskPaused/HandleTaskFailed,
+// it does not require the task to be in Running state — any non-terminal state
+// (including Queued) can be cancelled. This is useful for cancelling tasks that
+// are stuck in the queue because no matching client is available.
+func (s *Scheduler) HandleTaskCancelled(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status.IsTerminal() {
+		return nil // already terminal — no-op
+	}
+
+	prevStatus := task.Status
+	_ = task.Transition(reef.TaskCancelled)
+
+	// If the task was in the queue, remove it
+	s.queue.Remove(taskID)
+
+	if task.AssignedClient != "" {
+		s.registry.DecrementLoad(task.AssignedClient)
+		task.AssignedClient = ""
+	}
+
+	if s.onTaskStateChanged != nil {
+		s.onTaskStateChanged(task)
+	}
+
+	s.logger.Info("task cancelled",
+		slog.String("task_id", taskID),
+		slog.String("was_status", string(prevStatus)))
+	return nil
+}
+
 // HandleTaskTimedOut marks a running task as failed due to timeout.
 // This method is safe to call from any goroutine (e.g., TimeoutScanner).
 func (s *Scheduler) HandleTaskTimedOut(taskID string, elapsed time.Duration) error {

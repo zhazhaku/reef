@@ -43,6 +43,7 @@ func (a *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/skills/approve", a.authMiddleware(a.handleSkillApprove))
 	mux.HandleFunc("/admin/skills/reject", a.authMiddleware(a.handleSkillReject))
 	mux.HandleFunc("/admin/clients/shutdown", a.authMiddleware(a.handleClientShutdown))
+	mux.HandleFunc("/admin/tasks/cancel", a.authMiddleware(a.handleTaskCancel))
 	mux.HandleFunc("/tasks", a.authMiddleware(a.handleSubmitTask))
 }
 
@@ -566,5 +567,44 @@ func (a *AdminServer) handleClientShutdown(w http.ResponseWriter, r *http.Reques
 		"sent":     shutdownAll,
 		"failed":   failed,
 		"reason":   req.Reason,
+	})
+}
+
+// handleTaskCancel cancels a queued or running task.
+// POST /admin/tasks/cancel with {"task_id": "task-xxx"}
+func (a *AdminServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.TaskID == "" {
+		http.Error(w, "task_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.scheduler.HandleTaskCancelled(req.TaskID); err != nil {
+		a.logger.Warn("task cancel failed",
+			slog.String("task_id", req.TaskID),
+			slog.String("error", err.Error()))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	a.logger.Info("task cancelled via admin",
+		slog.String("task_id", req.TaskID))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "cancelled",
+		"task_id": req.TaskID,
 	})
 }

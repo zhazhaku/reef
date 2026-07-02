@@ -132,6 +132,21 @@ func (q *PersistentQueue) Snapshot() []*reef.Task {
 	return out
 }
 
+// Remove removes a task by ID from the cache.
+// Returns true if the task was found and removed.
+func (q *PersistentQueue) Remove(taskID string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for i, t := range q.cache {
+		if t.ID == taskID {
+			q.cache = append(q.cache[:i], q.cache[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // Expire removes tasks that have exceeded maxAge and updates the store.
 func (q *PersistentQueue) Expire(now time.Time) []*reef.Task {
 	q.mu.Lock()

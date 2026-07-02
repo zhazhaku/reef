@@ -124,6 +124,8 @@ const (
 	messageKindThought         = "thought"
 	messageKindToolFeedback    = "tool_feedback"
 	messageKindToolCalls       = "tool_calls"
+	messageKindThinkingCard    = "thinking_card"
+	messageKindThinkingFinal   = "thinking_final"
 	metadataKeyAccountID       = "account_id"
 	metadataKeyGuildID         = "guild_id"
 	metadataKeyTeamID          = "team_id"
@@ -630,7 +632,7 @@ func (al *AgentLoop) runAgentLoop(
 	ctx context.Context,
 	agent *AgentInstance,
 	opts processOptions,
-) (string, error) {
+) (string, string, error) {
 	opts = normalizeProcessOptions(opts)
 
 	// Record last channel for heartbeat notifications (skip internal channels and cli)
@@ -663,10 +665,10 @@ func (al *AgentLoop) runAgentLoop(
 	pipeline := NewPipeline(al)
 	result, err := al.runTurn(ctx, ts, pipeline)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if result.status == TurnEndStatusAborted {
-		return "", nil
+		return "", "", nil
 	}
 
 	for _, followUp := range result.followUps {
@@ -725,7 +727,7 @@ func (al *AgentLoop) runAgentLoop(
 			})
 	}
 
-	return result.finalContent, nil
+	return result.finalContent, result.finalReasoning, nil
 }
 
 // selectCandidates returns the model candidates and resolved model name to use

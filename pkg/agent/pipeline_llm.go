@@ -164,6 +164,12 @@ func (p *Pipeline) CallLLM(
 					if cp, ok := ts.agent.CandidateProviders[providers.ModelKey(provider, model)]; ok {
 						candidateProvider = cp
 					}
+					// Use ChatStream (streaming) when available to avoid response-header timeouts
+					// on slow-to-respond APIs (e.g., mimo-pro). ChatStream sends stream: true so the
+					// server returns HTTP headers immediately, then streams tokens.
+					if sp, ok := candidateProvider.(providers.StreamingProvider); ok {
+						return sp.ChatStream(ctx, messagesForCall, toolDefsForCall, model, exec.llmOpts, nil)
+					}
 					return candidateProvider.Chat(ctx, messagesForCall, toolDefsForCall, model, exec.llmOpts)
 				},
 			)
@@ -179,6 +185,9 @@ func (p *Pipeline) CallLLM(
 				)
 			}
 			return fbResult.Response, nil
+		}
+		if sp, ok := exec.activeProvider.(providers.StreamingProvider); ok {
+			return sp.ChatStream(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts, nil)
 		}
 		return exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
 	}
@@ -480,11 +489,11 @@ func (p *Pipeline) CallLLM(
 	} else if ts.channel == "pico" {
 		go al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID)
 	} else {
-		go al.handleReasoning(
+		al.handleReasoning(
 			turnCtx,
 			reasoningContent,
 			ts.channel,
-			al.targetReasoningChannelID(ts.channel),
+			ts.chatID,
 		)
 	}
 	al.emitEvent(

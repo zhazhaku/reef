@@ -64,7 +64,7 @@ func NewHTTPClient(proxy string) *http.Client {
 	// likely dead on mobile networks.
 	baseTransport.IdleConnTimeout = 60 * time.Second
 	baseTransport.TLSHandshakeTimeout = 10 * time.Second
-	baseTransport.ResponseHeaderTimeout = 30 * time.Second
+	baseTransport.ResponseHeaderTimeout = 90 * time.Second
 
 	client := &http.Client{
 		Timeout:   DefaultRequestTimeout,

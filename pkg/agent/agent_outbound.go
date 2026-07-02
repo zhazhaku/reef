@@ -21,7 +21,7 @@ func (al *AgentLoop) maybePublishError(ctx context.Context, channel, chatID, ses
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
-	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, fmt.Sprintf("Error processing message: %v", err))
+	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, fmt.Sprintf("Error processing message: %v", err), "")
 	return true
 }
 
@@ -29,6 +29,7 @@ func (al *AgentLoop) publishResponseOrError(
 	ctx context.Context,
 	channel, chatID, sessionKey string,
 	response string,
+	thought string,
 	err error,
 ) {
 	if err != nil {
@@ -36,11 +37,12 @@ func (al *AgentLoop) publishResponseOrError(
 			return
 		}
 		response = ""
+		thought = ""
 	}
-	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
+	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response, thought)
 }
 
-func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string) {
+func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response, thought string) {
 	if response == "" {
 		return
 	}
@@ -67,6 +69,7 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 	msg := bus.OutboundMessage{
 		Context: bus.NewOutboundContext(channel, chatID, ""),
 		Content: response,
+		Thought: thought,
 	}
 	if sessionKey != "" {
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
@@ -224,15 +227,18 @@ func (al *AgentLoop) handleReasoning(
 		return
 	}
 
-	// Check context cancellation before attempting to publish,
-	// since PublishOutbound's select may race between send and ctx.Done().
+	// For feishu channel: publish as thinking_card so the channel can
+	// progressively update a dedicated thinking card (PatchMessage).
+	if channelName == "feishu" {
+		al.publishThinkingCardUpdate(ctx, reasoningContent, channelID)
+		return
+	}
+
+	// Check context cancellation before attempting to publish.
 	if ctx.Err() != nil {
 		return
 	}
 
-	// Use a short timeout so the goroutine does not block indefinitely when
-	// the outbound bus is full.  Reasoning output is best-effort; dropping it
-	// is acceptable to avoid goroutine accumulation.
 	pubCtx, pubCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer pubCancel()
 
@@ -240,12 +246,6 @@ func (al *AgentLoop) handleReasoning(
 		Context: bus.NewOutboundContext(channelName, channelID, ""),
 		Content: reasoningContent,
 	}); err != nil {
-		// Treat context.DeadlineExceeded / context.Canceled as expected
-		// (bus full under load, or parent canceled).  Check the error
-		// itself rather than ctx.Err(), because pubCtx may time out
-		// (5 s) while the parent ctx is still active.
-		// Also treat ErrBusClosed as expected — it occurs during normal
-		// shutdown when the bus is closed before all goroutines finish.
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
 			errors.Is(err, bus.ErrBusClosed) {
 			logger.DebugCF("agent", "Reasoning publish skipped (timeout/cancel)", map[string]any{
@@ -256,6 +256,61 @@ func (al *AgentLoop) handleReasoning(
 			logger.WarnCF("agent", "Failed to publish reasoning (best-effort)", map[string]any{
 				"channel": channelName,
 				"error":   err.Error(),
+			})
+		}
+	}
+}
+
+// publishThinkingCardUpdate sends a thinking-card update message for the
+// feishu channel.  The channel maintains a per-chat thinking card that is
+// created on first message and patched on subsequent messages.
+func (al *AgentLoop) publishThinkingCardUpdate(ctx context.Context, reasoningContent, chatID string) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	pubCtx, pubCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer pubCancel()
+
+	if err := al.bus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		Context: bus.InboundContext{
+			Channel: "feishu",
+			ChatID:  chatID,
+			Raw: map[string]string{
+				metadataKeyMessageKind: messageKindThinkingCard,
+			},
+		},
+		Content: reasoningContent,
+	}); err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) &&
+			!errors.Is(err, bus.ErrBusClosed) {
+			logger.WarnCF("agent", "Failed to publish thinking card update", map[string]any{
+				"error": err.Error(),
+			})
+		}
+	}
+}
+
+// publishThinkingFinal sends a thinking_final message to the feishu channel
+// so it can replace the progressive thinking card with the final answer.
+func (al *AgentLoop) publishThinkingFinal(ctx context.Context, chatID, reasoningSummary string) {
+	pubCtx, pubCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer pubCancel()
+
+	if err := al.bus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		Context: bus.InboundContext{
+			Channel: "feishu",
+			ChatID:  chatID,
+			Raw: map[string]string{
+				metadataKeyMessageKind: messageKindThinkingFinal,
+			},
+		},
+		Content: reasoningSummary,
+	}); err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) &&
+			!errors.Is(err, bus.ErrBusClosed) {
+			logger.WarnCF("agent", "Failed to publish thinking final", map[string]any{
+				"error": err.Error(),
 			})
 		}
 	}

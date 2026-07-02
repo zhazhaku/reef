@@ -235,7 +235,7 @@ func TestProcessMessage_IncludesCurrentSenderInDynamicContext(t *testing.T) {
 	provider := &recordingProvider{}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "discord",
 		SenderID: "discord:123",
 		Sender: bus.SenderInfo{
@@ -294,7 +294,7 @@ func TestProcessMessage_UseCommandLoadsRequestedSkill(t *testing.T) {
 	provider := &recordingProvider{}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -369,7 +369,7 @@ func TestProcessMessage_BtwCommandRunsWithoutPersistingHistory(t *testing.T) {
 	defaultAgent.Sessions.SetHistory(sessionKey, initialHistory)
 	defaultAgent.Sessions.SetSummary(sessionKey, "The team decided to keep state request-scoped.")
 
-	response, err := al.processMessage(context.Background(), msg)
+	response, _, err := al.processMessage(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("processMessage() error = %v", err)
 	}
@@ -416,7 +416,7 @@ func TestProcessMessage_BtwCommandIncludesRequestContextAndMedia(t *testing.T) {
 	al := NewAgentLoop(cfg, msgBus, provider)
 	useTestSideQuestionProvider(al, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "discord",
 		SenderID: "discord:123",
 		Sender: bus.SenderInfo{
@@ -489,7 +489,7 @@ func TestProcessMessage_BtwCommandUsesIsolatedProvider(t *testing.T) {
 	defaultAgent.Sessions.SetHistory(mainSessionKey, initialHistory)
 
 	// Process a /btw command
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:    "telegram",
 		SenderID:   "telegram:123",
 		ChatID:     "chat-1",
@@ -543,7 +543,7 @@ func TestProcessMessage_BtwCommandRetriesWithoutMediaOnVisionUnsupported(t *test
 	al := NewAgentLoop(cfg, msgBus, provider)
 	useTestSideQuestionProvider(al, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -587,7 +587,7 @@ func TestProcessMessage_BtwCommandUsesProviderFactoryModel(t *testing.T) {
 	al := NewAgentLoop(cfg, msgBus, provider)
 	useTestSideQuestionProvider(al, provider)
 
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -632,7 +632,7 @@ func TestProcessMessage_BtwCommandHookModelBypassesFallbackCandidates(t *testing
 		t.Fatalf("MountHook failed: %v", err)
 	}
 
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -709,7 +709,7 @@ func TestProcessMessage_UseCommandArmsSkillForNextMessage(t *testing.T) {
 	provider := &recordingProvider{}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -722,7 +722,7 @@ func TestProcessMessage_UseCommandArmsSkillForNextMessage(t *testing.T) {
 		t.Fatalf("arm response = %q, want armed confirmation", response)
 	}
 
-	response, err = al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err = al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "telegram:123",
 		ChatID:   "chat-1",
@@ -1040,7 +1040,7 @@ func TestProcessMessage_MediaToolHandledSkipsFollowUpLLMAndFinalText(t *testing.
 		path:  imagePath,
 	})
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		ChatID:   "chat1",
 		SenderID: "user1",
@@ -1143,7 +1143,7 @@ func TestProcessMessage_HandledToolProcessesQueuedSteeringBeforeReturning(t *tes
 		loop:  al,
 	})
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		ChatID:   "chat1",
 		SenderID: "user1",
@@ -1186,7 +1186,7 @@ func TestRunAgentLoop_ResponseHandledToolPublishesForUserWhenSendResponseDisable
 		t.Fatal("expected default agent")
 	}
 
-	response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+	response, _, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
 		Dispatch: DispatchRequest{
 			SessionKey:  "session-1",
 			UserMessage: "take a screenshot of the screen and send it to me",
@@ -1451,7 +1451,7 @@ func TestProcessMessage_MediaArtifactCanBeForwardedBySendFile(t *testing.T) {
 		path:  imagePath,
 	})
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		ChatID:   "chat1",
 		SenderID: "user1",
@@ -2426,7 +2426,7 @@ func (h testHelper) executeAndGetResponse(tb testing.TB, ctx context.Context, ms
 	timeoutCtx, cancel := context.WithTimeout(ctx, responseTimeout)
 	defer cancel()
 
-	response, err := h.al.processMessage(timeoutCtx, testInboundMessage(msg))
+	response, _, err := h.al.processMessage(timeoutCtx, testInboundMessage(msg))
 	if err != nil {
 		tb.Fatalf("processMessage failed: %v", err)
 	}
@@ -3388,7 +3388,7 @@ func TestAgentLoop_VisionUnsupportedErrorStripsSessionMedia(t *testing.T) {
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), responseTimeout)
 	defer cancel()
 
-	resp, err := al.processMessage(timeoutCtx, testInboundMessage(bus.InboundMessage{
+	resp, _, err := al.processMessage(timeoutCtx, testInboundMessage(bus.InboundMessage{
 		Context: bus.InboundContext{
 			Channel:   "telegram",
 			ChatID:    "chat1",
@@ -3427,7 +3427,7 @@ func TestAgentLoop_VisionUnsupportedErrorStripsSessionMedia(t *testing.T) {
 	timeoutCtx2, cancel2 := context.WithTimeout(context.Background(), responseTimeout)
 	defer cancel2()
 
-	resp2, err := al.processMessage(timeoutCtx2, testInboundMessage(bus.InboundMessage{
+	resp2, _, err := al.processMessage(timeoutCtx2, testInboundMessage(bus.InboundMessage{
 		Context: bus.InboundContext{
 			Channel:   "telegram",
 			ChatID:    "chat1",
@@ -3866,7 +3866,7 @@ func TestProcessMessage_PublishesReasoningContentToReasoningChannel(t *testing.T
 	chManager.RegisterChannel("telegram", &fakeChannel{id: "reason-chat"})
 	al.SetChannelManager(chManager)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "user1",
 		ChatID:   "chat1",
@@ -3918,7 +3918,7 @@ func TestProcessMessage_PicoPublishesReasoningAsThoughtMessage(t *testing.T) {
 	}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:  "pico",
 		SenderID: "user1",
 		ChatID:   "pico:test-session",
@@ -4035,7 +4035,7 @@ func TestProcessMessage_PublishesToolFeedbackWhenEnabled(t *testing.T) {
 	provider := &toolFeedbackProvider{filePath: heartbeatFile}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "user-1",
 		ChatID:   "chat-1",
@@ -4112,7 +4112,7 @@ func TestProcessMessage_PersistsReasoningContentInSessionHistory(t *testing.T) {
 	}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:  "pico",
 		SenderID: "user1",
 		ChatID:   "pico:test-session",
@@ -4164,7 +4164,7 @@ func TestProcessMessage_PersistsReasoningToolResponseAsSingleAssistantRecord(t *
 	provider := &reasoningVisibleToolProvider{filePath: inspectPath}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "user1",
 		ChatID:   "chat1",
@@ -4299,7 +4299,7 @@ func TestProcessMessage_DoesNotLeakReasoningContentInToolFeedback(t *testing.T) 
 	provider := &toolFeedbackReasoningProvider{filePath: heartbeatFile}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "user-1",
 		ChatID:   "chat-1",
@@ -4371,7 +4371,7 @@ func assertToolFeedbackNotPublishedWhenDisabled(t *testing.T, channel string) {
 	provider := &toolFeedbackProvider{filePath: heartbeatFile}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  channel,
 		SenderID: "user-1",
 		ChatID:   "chat-1",
@@ -4411,7 +4411,7 @@ func TestProcessMessage_MessageToolPublishesOutboundWithTurnMetadata(t *testing.
 	provider := &messageToolProvider{}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "telegram",
 		SenderID: "user-1",
 		ChatID:   "chat-1",
@@ -4554,7 +4554,7 @@ func TestRunAgentLoop_PicoSkipsInterimPublishWhenNotAllowed(t *testing.T) {
 	}
 	agent.Tools.Register(&toolLimitTestTool{})
 
-	response, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	response, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:              "agent:main:pico:session-1",
 		Channel:                 "pico",
 		ChatID:                  "session-1",
@@ -5078,7 +5078,7 @@ func TestProcessMessage_ContextOverflowRecovery(t *testing.T) {
 		agent.Sessions.AddFullMessage(sessionKey, providers.Message{Role: "assistant", Content: "response"})
 	}
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:    "test",
 		ChatID:     "chat1",
 		SenderID:   "user1",
@@ -5120,7 +5120,7 @@ func TestProcessMessage_ContextOverflow_AnthropicStyle(t *testing.T) {
 		return &providers.LLMResponse{Content: "Anthropic recovery success"}, nil
 	}
 
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+	response, _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
 		Channel:  "test",
 		ChatID:   "chat1",
 		SenderID: "user1",

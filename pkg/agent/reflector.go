@@ -170,7 +170,12 @@ func runReflection(
 		{Role: "user", Content: prompt},
 	}
 
-	resp, err := provider.Chat(ctx, messages, nil, model, nil)
+	resp, err := func() (*providers.LLMResponse, error) {
+		if sp, ok := provider.(providers.StreamingProvider); ok {
+			return sp.ChatStream(ctx, messages, nil, model, nil, nil)
+		}
+		return provider.Chat(ctx, messages, nil, model, nil)
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("reflection chat: %w", err)
 	}

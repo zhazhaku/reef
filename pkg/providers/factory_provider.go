@@ -18,8 +18,9 @@ import (
 )
 
 type protocolMeta struct {
-	defaultAPIBase     string
-	emptyAPIKeyAllowed bool
+	defaultAPIBase       string
+	emptyAPIKeyAllowed   bool
+	requestTimeoutSeconds int // Default request timeout for this protocol (0 = no custom timeout)
 }
 
 var protocolMetaByName = map[string]protocolMeta{
@@ -59,7 +60,7 @@ var protocolMetaByName = map[string]protocolMeta{
 	"minimax":                  {defaultAPIBase: "https://api.minimaxi.com/v1"},
 	"longcat":                  {defaultAPIBase: "https://api.longcat.chat/openai"},
 	"modelscope":               {defaultAPIBase: "https://api-inference.modelscope.cn/v1"},
-	"mimo":                     {defaultAPIBase: "https://api.xiaomimimo.com/v1"},
+	"mimo":                     {defaultAPIBase: "https://api.xiaomimimo.com/v1", requestTimeoutSeconds: 180},
 }
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
@@ -184,7 +185,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.Proxy,
 			cfg.MaxTokensField,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
@@ -208,7 +209,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.APIBase,
 			cfg.Proxy,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 		), modelID, nil
 
 	case "bedrock":
@@ -266,7 +267,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.Proxy,
 			cfg.MaxTokensField,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
@@ -287,7 +288,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			apiBase,
 			cfg.Proxy,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
 		), modelID, nil
@@ -314,7 +315,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.Proxy,
 			cfg.MaxTokensField,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 			cfg.StreamIdleTimeout,
 			extraBody,
 			cfg.CustomHeaders,
@@ -345,7 +346,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.Proxy,
 			cfg.MaxTokensField,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 			cfg.StreamIdleTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
@@ -366,7 +367,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 		), modelID, nil
 
 	case "coding-plan-anthropic", "alibaba-coding-anthropic":
@@ -382,7 +383,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
-			cfg.RequestTimeout,
+			getRequestTimeoutOrDefault(protocol, cfg.RequestTimeout),
 		), modelID, nil
 
 	case "antigravity":
@@ -448,4 +449,15 @@ func getDefaultAPIBase(protocol string) string {
 		return ""
 	}
 	return meta.defaultAPIBase
+}
+
+// getRequestTimeoutOrDefault returns the per-protocol requestTimeoutSeconds from
+// protocolMetaByName if it's set (non-zero), falling back to the per-model cfg
+// defaultRequestTimeout value. This allows protocols known to need longer timeouts
+// (e.g., mimo) to set a higher default without requiring every user to configure it.
+func getRequestTimeoutOrDefault(protocol string, defaultRequestTimeout int) int {
+	if meta, ok := protocolMetaByName[protocol]; ok && meta.requestTimeoutSeconds > 0 {
+		return meta.requestTimeoutSeconds
+	}
+	return defaultRequestTimeout
 }

@@ -422,7 +422,7 @@ func TestAgentLoop_Hooks_ObserverAndLLMInterceptor(t *testing.T) {
 		t.Fatalf("MountHook failed: %v", err)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -695,7 +695,7 @@ func TestAgentLoop_Hooks_ToolInterceptorCanRewrite(t *testing.T) {
 		t.Fatalf("MountHook failed: %v", err)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -750,7 +750,7 @@ func TestAgentLoop_Hooks_ToolFeedbackUsesRewrittenToolName(t *testing.T) {
 		t.Fatalf("MountHook failed: %v", err)
 	}
 
-	_, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	_, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -803,7 +803,7 @@ func TestAgentLoop_Hooks_ToolApproverCanDeny(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -879,7 +879,7 @@ func TestAgentLoop_Hooks_ToolRespondAction(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -950,7 +950,7 @@ func TestAgentLoop_Hooks_ToolDenyAction(t *testing.T) {
 		t.Fatalf("MountHook failed: %v", err)
 	}
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-1",
 		Channel:         "cli",
 		ChatID:          "direct",
@@ -1068,7 +1068,7 @@ func TestAgentLoop_HookRespond_MediaError(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	_, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	_, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-media-err",
 		Channel:         "discord",
 		ChatID:          "chat1",
@@ -1123,7 +1123,7 @@ func TestAgentLoop_HookRespond_BusFallback(t *testing.T) {
 	sub := al.SubscribeEvents(16)
 	defer al.UnsubscribeEvents(sub.ID)
 
-	resp, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	resp, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		SessionKey:      "session-bus-fallback",
 		Channel:         "cli",
 		ChatID:          "chat1",
@@ -1179,7 +1179,7 @@ func TestAgentLoop_HookRespond_ResponseHandledMediaPreservesOutboundContext(t *t
 	al.channelManager = newStartedTestChannelManager(t,
 		al.bus.(*bus.MessageBus), al.mediaStore, "telegram", telegramChannel)
 
-	_, err := al.runAgentLoop(context.Background(), agent, processOptions{
+	_, _, err := al.runAgentLoop(context.Background(), agent, processOptions{
 		Dispatch: DispatchRequest{
 			SessionKey: "session-topic-media",
 			SessionScope: &session.SessionScope{

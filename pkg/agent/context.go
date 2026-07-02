@@ -120,9 +120,9 @@ func (cb *ContextBuilder) getIdentity() string {
 	version := config.FormatVersion()
 
 	return fmt.Sprintf(
-		`# reef 🪸 (%s)
+		`# reef 🪸 (%s) — 始终用中文思考 | Think in Chinese
 
-You are reef, a helpful AI assistant.
+You are reef, a helpful AI assistant. 你必须用中文思考 (You MUST think in Chinese).
 
 ## Workspace
 Your workspace is at: %s
