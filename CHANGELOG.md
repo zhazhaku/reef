@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [compressor v1.0.0] — 2026-07-17
+
+### Added — 压缩器包（pkg/compressor）
+
+- **SmartCrusher** — JSON 结构截断压缩器。按数组长度、嵌套深度、字符串长度三级截断，支持 `PreserveKeys` 白名单。
+- **CodeCompressor** — 代码感知行压缩器。保留 import/函数签名，截断函数体；`Priority="low"` 时行长度限制减半。
+- **LogCompressor** — 日志去重压缩器。逐行解析时间戳+级别+模块，去重后折叠为计数摘要。
+- **SearchCompressor** — 搜索结果压缩器。按 `relevance` 排序，截断到 `MaxTokens`，保留高相关结果。
+- **CacheAligner** — 缓存对齐器。规范化时间戳/UUID/IP/Email 格式以提高 KV 缓存命中率。
+- **ContentRouter** — 内容类型检测 + 压缩器自动路由。`application/json`→SmartCrusher, `text/code`→CodeCompressor, `text/plain`→LogCompressor, `application/search`→SearchCompressor.
+- **CCR (Compressed Content Registry)** — 基于 SHA-256 的引用计数+TTL 存储。支持 Zstd 压缩，256 MiB 防 zip-bomb。
+- **QualityScorer** — 语义保留度（JSON key / 代码关键字保留率）+ 保真度评分。
+- **KVCacheReuse** — KV 缓存复用率测量工具（公共前缀长度 + 命中率估算）。
+- **MetricsCollector** — 压缩比、P50/P95/P99 延迟百分位滑动窗口采集。
+- **IngestHook** — 零侵入工具输出压缩 Hook。在 Seahorse Ingest 点压缩 oversize 工具结果。
+- **AssembleHook** — 预算感知上下文组装 Hook。按 token 预算分配消息。
+- **CompactHook** — 溢出触发二次压缩 Hook。Assemble 超预算时的最后手段。
+
+### Added — Agent 层集成
+
+- **`CompressToolOutput` 配置项** — Seahorse ContextManager 支持 `compress_tool_output` 开关（默认关闭）。
+- **`Compressor.Decompress()` 接口方法** — 不可逆压缩器返回 pass-through；CCR Zstd 完整还原。
+- **压缩标记协议** — 压缩后内容以 `[COMPRESSED]` 前缀标记，Assemble 时自动剥离。
+
+### Changed — 接口变更
+
+- **Compressor 接口** 新增 `Decompress(ctx, []byte) ([]byte, error)` 方法（向后不兼容）。
+- **CompressOptions** 新增 `Priority` 和 `PreserveKeys` 字段。
+
+### Performance (arm64, Go 1.26.2)
+
+| 路径 | ns/op | B/op | allocs/op |
+|:---|:---:|:---:|:---:|
+| SmartCrusher (5KB JSON) | 8,627 | 2,329 | 42 |
+| CodeCompressor | 3,025 | 1,248 | 12 |
+| LogCompressor (small) | 11,550 | 645 | 13 |
+| SearchCompressor (small) | 2,313 | 724 | 15 |
+| ContentRouter | 9,586 | 2,681 | 54 |
+| CompressorChain | 279,692 | 84,092 | 1,429 |
+| MetricsRecordSuccess | 163.3 | 80 | 0 |
+
+### Code Statistics
+
+- **37 个 .go 源文件** / 7,175 行
+- **121 个单元测试** / 29 个性能回归基准
+- **0 TODO/FIXME**（全部清理干净）
+
 ## [0.3.0] — Reef v2.0 (Phase 1: Persistent Queue)
 
 ### Added

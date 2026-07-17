@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/zhazhaku/reef/pkg/compressor"
 	"github.com/zhazhaku/reef/pkg/logger"
 	"github.com/zhazhaku/reef/pkg/providers"
 	"github.com/zhazhaku/reef/pkg/providers/protocoltypes"
@@ -19,16 +20,38 @@ import (
 	"github.com/zhazhaku/reef/pkg/tokenizer"
 )
 
+// compressPrefix is prepended to tool-output content that has been compressed
+// by the IngestHook. Messages carrying this prefix are decompressed on Assemble.
+const compressPrefix = "[COMPRESSED]"
+
+// seahorseConfig is the JSON configuration for the seahorse context manager.
+// It is parsed from the raw json.RawMessage passed to newSeahorseContextManager.
+type seahorseConfig struct {
+	// CompressToolOutput enables lossy compression of tool-role messages via
+	// the compressor package's IngestHook. Defaults to false (no compression).
+	CompressToolOutput bool `json:"compress_tool_output,omitempty"`
+}
+
 // seahorseContextManager adapts seahorse.Engine to agent.ContextManager.
 type seahorseContextManager struct {
-	engine   *seahorse.Engine
-	sessions session.SessionStore // for startup bootstrap
+	engine             *seahorse.Engine
+	sessions           session.SessionStore // for startup bootstrap
+	ingestHook         *compressor.IngestHook
+	compressToolOutput bool
 }
 
 // newSeahorseContextManager creates a seahorse-backed ContextManager.
-func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager, error) {
+func newSeahorseContextManager(cfgRaw json.RawMessage, al *AgentLoop) (ContextManager, error) {
 	if al == nil {
 		return nil, fmt.Errorf("seahorse: AgentLoop is required")
+	}
+
+	// Parse seahorse-specific config
+	var cfg seahorseConfig
+	if len(cfgRaw) > 0 {
+		if err := json.Unmarshal(cfgRaw, &cfg); err != nil {
+			return nil, fmt.Errorf("seahorse: parse config: %w", err)
+		}
 	}
 
 	// Resolve workspace for DB path
@@ -48,8 +71,31 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	}
 
 	mgr := &seahorseContextManager{
-		engine:   engine,
-		sessions: agent.Sessions,
+		engine:             engine,
+		sessions:           agent.Sessions,
+		compressToolOutput: cfg.CompressToolOutput,
+	}
+
+	// Initialize compressor hook for tool output compression
+	if cfg.CompressToolOutput {
+		router := compressor.NewContentRouter()
+		// Register compressors from the global registry into the router
+		for _, name := range compressor.Names() {
+			c := compressor.Get(name)
+			if c != nil {
+				// Map compressor names to content types for the router
+				switch name {
+				case "smart_crusher":
+					router.Register("application/json", c)
+				case "code_compressor":
+					router.Register("text/code", c)
+				case "log_compressor":
+					router.Register("text/plain", c)
+				}
+			}
+		}
+		mgr.ingestHook = compressor.NewIngestHook(router)
+		logger.InfoCF("agent", "seahorse: compressor ingest hook enabled", nil)
 	}
 
 	// Register seahorse tools with the agent's tool registry
@@ -124,6 +170,18 @@ func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequ
 	}
 
 	history := seahorseToProviderMessages(result)
+
+	// Decompress any tool outputs that were compressed during Ingest.
+	// Structural compressors (SmartCrusher, CodeCompressor, etc.) are lossy —
+	// decompression is a pass-through that returns the already-compressed form.
+	// Future CCR-backed decompression will restore the original from the CCR store.
+	for i := range history {
+		if strings.HasPrefix(history[i].Content, compressPrefix) {
+			history[i].Content = strings.TrimPrefix(history[i].Content, compressPrefix)
+			// Content is now in its compressed (lossy) form — this is the
+			// intended state for structural compressors that cannot reverse.
+		}
+	}
 
 	// Summary is already formatted as XML with system prompt addition by assembler
 	return &AssembleResponse{
@@ -339,15 +397,38 @@ func uniqueStrings(ss []string) []string {
 	return result
 }
 
-// Ingest records a message into seahorse SQLite.
+// Ingest records a message into seahorse SQLite. Tool-role messages are
+// compressed via IngestHook when CompressToolOutput is enabled.
 // All existing sessions are bootstrapped at startup, so this only ingests new messages.
 func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest) error {
 	if req == nil {
 		return nil
 	}
 
-	msg := providerToSeahorseMessage(req.Message)
-	_, err := m.engine.Ingest(ctx, req.SessionKey, []seahorse.Message{msg})
+	msg := req.Message
+
+	// Compress tool outputs before storing
+	if m.compressToolOutput && m.ingestHook != nil && msg.Role == "tool" && msg.Content != "" {
+		compressed, err := m.ingestHook.Process(ctx, []byte(msg.Content))
+		if err != nil {
+			// Compression failure is non-fatal — store uncompressed original
+			logger.WarnCF("agent", "seahorse ingest: compression failed, storing original",
+				map[string]any{"error": err.Error()})
+		} else {
+			// Store compressed content with marker for detection on retrieval
+			msg.Content = compressPrefix + compressed.Content
+			logger.DebugCF("agent", "seahorse ingest: tool output compressed",
+				map[string]any{
+					"role":           msg.Role,
+					"original_sz":    compressed.OriginalSz,
+					"compressed_sz":  compressed.FinalSz,
+					"ratio":          fmt.Sprintf("%.2f", compressed.Ratio),
+				})
+		}
+	}
+
+	seahorseMsg := providerToSeahorseMessage(msg)
+	_, err := m.engine.Ingest(ctx, req.SessionKey, []seahorse.Message{seahorseMsg})
 	return err
 }
 
