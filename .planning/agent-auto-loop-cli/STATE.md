@@ -18,7 +18,7 @@
 | M4A: Wave 4A (Healer + AutoScaler) | ✅ 完成 | 2026-07-24 | auto_healer.go (9 tests) + auto_scaler.go (7 tests) |
 | **M4B: Wave 4B (CLI Commands)** | **✅ 完成** | **2026-07-27** | **cmd_auto.go — 8 子命令** |
 | **M4C: Wave 4C (AgentLoop Integration)** | **✅ 完成** | **2026-07-27** | **agent.go + agent_command.go wiring** |
-| M5: Wave 5 (Quality) | 🔴 进行中 | — | 收敛测试/并发/文档 |
+| M5: Wave 5 (Quality) | ✅ 完成 | 2026-07-27 | 收敛测试+并发安全+边角情形+文档全部完成 |
 
 ## 代码修复清单
 
@@ -83,9 +83,63 @@
 - 客户端: **2 coders** 已连接
 - 状态: Wave 1-4C 全部完成，准备 Wave 5
 
-## 下一步: Wave 5 (Quality)
+### 测试统计更新 (2026-07-27)
 
-1. **收敛测试**: end-to-end 集成测试 / auto 各类命令路径
-2. **并发安全**: race condition 检测 + 修复
-3. **边角情况**: 空队列、非法参数、超时、cancel
-4. **文档**: SKILL.md / README 更新
+| 测试类别 | 测试数 | 状态 |
+|----------|:------:|:----:|
+| 单元测试 (orchestrator) | 20 | ✅ PASS |
+| 单元测试 (client_pool) | 12 | ✅ PASS |
+| 单元测试 (planner) | 18 | ✅ PASS |
+| 单元测试 (healer) | 9 | ✅ PASS |
+| 单元测试 (scaler) | 7 | ✅ PASS |
+| CLI 收敛测试 (cmd_auto_test.go) | 34 | ✅ PASS |
+| E2E 集成测试 (auto_e2e_test.go) | 9 | ✅ PASS |
+| **并发安全测试 (auto_concurrency_test.go)** | **9** | **✅ PASS — 新增** |
+| **边角情况测试 (auto_concurrency_test.go)** | **6** | **✅ PASS — 新增** |
+| **全部 auto 测试合计** | **124** | **✅ PASS** |
+
+### E2E 覆盖场景
+
+| 测试 | 场景 |
+|------|------|
+| TestAutoE2E_FullLifecycle | 模式变化 → 入队 3 任务 → 3 步处理 → 空队列 → 停止后继续入队 |
+| TestAutoE2E_ModeSwitching | manual → chat → hermes → auto → invalid error |
+| TestAutoE2E_LoopConfiguration | count=3 配置 → infinite 配置 |
+| TestAutoE2E_QueueManagement | 空队列 → 单任务 → FIFO 3 任务顺序验证 |
+| TestAutoE2E_Aliases | /autotask run ✓ /autoloop loop ✓ |
+| TestAutoE2E_StepAndQueue | step 前后队列深度变化 + 剩余任务验证 |
+| TestAutoE2E_ConcurrentEnqueue | 5 任务连续入队 → FIFO 正确性 |
+| TestAutoE2E_StatusOutput | status 必须包含 mode/state 字段 |
+| TestAutoE2E_QueueCommand | queue 空/非空输出正确性 |
+
+## Wave 5 — Quality ✅ (2026-07-27)
+
+### 并发安全测试 — `auto_concurrency_test.go` (9 测试)
+
+| 测试 | 场景 | 并发维度 |
+|------|------|:--------:|
+| TestConcurrentGetSetMode | 20 goroutine × 50 次 Get/SetMode | mode 锁 |
+| TestConcurrentEnqueueAndProcessQueue | 生产者 + 消费者 + 监控 3 线并行 | taskQueue 锁 |
+| TestConcurrentStopAndStatus | 10 × Stop + 10 × Status 同时 | state 锁 + doneCh |
+| TestConcurrentSetLoopConfigAndStatus | 10 × SetLoopConfig + 10 × Status | loopConfig 锁 |
+| TestConcurrentTriggerAndPollQueue | 20 × Trigger + 5 × PollQueue | tickerCh 并发安全 |
+| TestConcurrentAllMethods | 30 goroutine × 19 方法混跑 | 全家桶无死锁 |
+| TestConcurrentHistoryAccess | 10 goroutine × 30 次 ListHistory | history/queue 读锁 |
+| TestConcurrentBuildSystemPromptWithCache | 已有缓存并发构建 | system prompt 缓存锁 |
+
+### 边角情形测试 — `auto_concurrency_test.go` (6 测试)
+
+| 测试 | 场景 |
+|------|------|
+| TestStopWhenAlreadyStopped | 3 次连续 Stop，验证 state Idle 处理 |
+| TestSetModeIdempotent | 100 次 SetMode 同一值 + 1 次切换 |
+| TestQueueEdgeCases | 空串/8KB 长串入队、空队列 ProcessQueue、多轮入队出队 |
+| TestChannelOverflow | tickerCh 容量 10，发送 50 次 Trigger（验证 non-blocking select）|
+| TestModeRapidSwitching | 100 次快速 ModeAuto↔ModeManual 切换 |
+| TestSetLoopConfigZeroValues | 零值 LoopConfig{} + ModeOnce，验证 SetLoopConfig |
+| TestHistoryEdgeCases | 无 plan 时 ListHistory → nil |
+
+### 文档
+
+- `skills/auto-loop/SKILL.md` — 完整 CLI 命令表、架构组件、测试统计
+- `STATE.md` — 里程碑更新、测试统计更新
