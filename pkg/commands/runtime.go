@@ -6,6 +6,17 @@ import (
 	"github.com/zhazhaku/reef/pkg/config"
 )
 
+// AutoHistoryEntry represents one completed or failed task in the
+// AutoLoop execution history.
+type AutoHistoryEntry struct {
+	ID          string `json:"id"`
+	Instruction string `json:"instruction"`
+	Status      string `json:"status"` // done, failed, cancelled
+	Duration    string `json:"duration,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// MCPServerInfo describes an MCP server state.
 type MCPServerInfo struct {
 	Name      string
 	Enabled   bool
@@ -55,4 +66,16 @@ type Runtime struct {
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
 	ReloadConfig       func() error
+
+	// AutoLoop Orchestrator callbacks — wired by AgentLoop when
+	// AutoLoopOrchestrator is present. All are nil when the
+	// feature is not compiled in or not initialized.
+	GetAutoStatus      func() interface{}         // returns OrchestratorStatus
+	SetAutoMode        func(mode string) (string, error) // returns old mode
+	SetAutoLoopCount   func(count int)             // 0 = infinite
+	EnqueueAutoMessage func(instruction string)
+	RunAutoStep        func()
+	StopAuto           func()
+	GetAutoQueue       func() []string
+	GetAutoHistory     func() []AutoHistoryEntry
 }

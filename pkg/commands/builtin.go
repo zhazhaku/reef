@@ -18,5 +18,6 @@ func BuiltinDefinitions() []Definition {
 		contextCommand(),
 		subagentsCommand(),
 		reloadCommand(),
+		autoCommand(),
 	}
 }

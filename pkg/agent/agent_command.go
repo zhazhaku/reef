@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zhazhaku/reef/pkg/bus"
 	"github.com/zhazhaku/reef/pkg/commands"
@@ -349,6 +350,84 @@ func (al *AgentLoop) buildCommandsRuntime(
 				UsedPercent:      usage.UsedPercent,
 				MessageCount:     len(history),
 			}
+		}
+	}
+
+	// Wire AutoLoop Orchestrator callbacks if the orchestrator is present
+	if al.orchestrator != nil {
+		orch := al.orchestrator
+		rt.GetAutoStatus = func() interface{} {
+			return orch.Status()
+		}
+		rt.SetAutoMode = func(mode string) (string, error) {
+			var targetMode ConversationMode
+			switch mode {
+			case "auto":
+				targetMode = ModeAuto
+			case "manual":
+				targetMode = ModeManual
+			case "chat":
+				targetMode = ModeChat
+			case "hermes":
+				targetMode = ModeHermes
+			default:
+				return "", fmt.Errorf("unknown mode: %s", mode)
+			}
+			prev := orch.GetMode()
+			_ = orch.SetMode(targetMode) // SetMode returns prev, we already have it
+			prevStr := ""
+			switch prev {
+			case ModeAuto:
+				prevStr = "auto"
+			case ModeManual:
+				prevStr = "manual"
+			case ModeChat:
+				prevStr = "chat"
+			case ModeHermes:
+				prevStr = "hermes"
+			}
+			return prevStr, nil
+		}
+		rt.SetAutoLoopCount = func(count int) {
+			var mode AutoMode
+			if count == 0 {
+				mode = ModeInfinite
+			} else {
+				mode = ModeLoopN
+			}
+			orch.SetLoopConfig(LoopConfig{
+				PollEvery:   1 * time.Second,
+				Mode:        mode,
+				LoopCount:   count,
+				IdleTimeout: 5 * time.Minute,
+				MaxClients:  5,
+			})
+		}
+		rt.EnqueueAutoMessage = func(instruction string) {
+			orch.EnqueueMessage(instruction)
+		}
+		rt.RunAutoStep = func() {
+			// Trigger one manual queue process step
+			orch.ProcessQueue()
+		}
+		rt.StopAuto = func() {
+			orch.Stop()
+		}
+		rt.GetAutoQueue = func() []string {
+			return orch.ListQueue()
+		}
+		rt.GetAutoHistory = func() []commands.AutoHistoryEntry {
+			entries := orch.ListHistory()
+			result := make([]commands.AutoHistoryEntry, len(entries))
+			for i, e := range entries {
+				result[i] = commands.AutoHistoryEntry{
+					ID:          e.ID,
+					Instruction: e.Instruction,
+					Status:      e.Status,
+					Error:       e.ErrorMessage,
+				}
+			}
+			return result
 		}
 	}
 	return rt

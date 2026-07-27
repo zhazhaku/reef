@@ -77,6 +77,9 @@ type AgentLoop struct {
 	reloadFunc func() error
 
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
+
+	// AutoLoop Orchestrator — controls auto/manual execution modes
+	orchestrator *AutoLoopOrchestrator
 }
 
 // processOptions configures how a message is processed

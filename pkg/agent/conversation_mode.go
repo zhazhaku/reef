@@ -22,6 +22,17 @@ const (
 	// Server acts as a workflow coordinator, HermesGuard filters tool
 	// calls, and user messages are routed through the phase state machine.
 	ModeHermes ConversationMode = "hermes"
+
+	// ModeManual is a manual single-step execution mode — each user
+	// instruction is treated as a one-shot task (no DAG, no auto-loop).
+	// User must explicitly submit each task via /auto step or /auto run.
+	ModeManual ConversationMode = "manual"
+
+	// ModeAuto is the full auto-loop execution mode — the Orchestrator
+	// continuously polls the task queue, dispatches to available clients,
+	// runs DAG dependency resolution, heals failed tasks, and scales the
+	// client pool. 
+	ModeAuto ConversationMode = "auto"
 )
 
 // String returns the human-readable mode name.
@@ -31,6 +42,10 @@ func (m ConversationMode) String() string {
 		return "聊天模式 (Chat)"
 	case ModeHermes:
 		return "Hermes 模式"
+	case ModeManual:
+		return "手动模式 (Manual)"
+	case ModeAuto:
+		return "自动模式 (Auto)"
 	default:
 		return string(m)
 	}
@@ -39,6 +54,22 @@ func (m ConversationMode) String() string {
 // IsHermes returns true if this is the Hermes workflow mode.
 func (m ConversationMode) IsHermes() bool {
 	return m == ModeHermes
+}
+
+// IsManual returns true if this is the Manual single-step execution mode.
+func (m ConversationMode) IsManual() bool {
+	return m == ModeManual
+}
+
+// IsAuto returns true if this is the Auto loop execution mode.
+func (m ConversationMode) IsAuto() bool {
+	return m == ModeAuto
+}
+
+// IsOrchestrated returns true if the mode uses the AutoLoopOrchestrator
+// (Auto or Manual) rather than direct message processing (Chat or Hermes).
+func (m ConversationMode) IsOrchestrated() bool {
+	return m == ModeManual || m == ModeAuto
 }
 
 // SessionKey returns the seahorse session key for this conversation+mode
@@ -53,6 +84,10 @@ func SessionKey(convID string, mode ConversationMode) string {
 		return "conv:" + convID + ":chat"
 	case ModeHermes:
 		return "conv:" + convID + ":hermes"
+	case ModeManual:
+		return "conv:" + convID + ":manual"
+	case ModeAuto:
+		return "conv:" + convID + ":auto"
 	default:
 		return "conv:" + convID + ":chat"
 	}
@@ -68,6 +103,10 @@ const (
 	ModeCmdSwitchToChat
 	// ModeCmdSwitchToHermes switches the conversation to Hermes mode.
 	ModeCmdSwitchToHermes
+	// ModeCmdSwitchToManual switches the conversation to Manual mode.
+	ModeCmdSwitchToManual
+	// ModeCmdSwitchToAuto switches the conversation to Auto mode.
+	ModeCmdSwitchToAuto
 	// ModeCmdShowMode queries the current mode.
 	ModeCmdShowMode
 )
@@ -90,6 +129,14 @@ func detectModeCommand(text string) ModeCommand {
 		"切换hermes", "进入hermes":
 		return ModeCmdSwitchToHermes
 
+	case "auto mode", "switch to auto",
+		"/auto", "auto模式", "自动模式":
+		return ModeCmdSwitchToAuto
+
+	case "manual mode", "switch to manual",
+		"/manual", "manual模式", "手动模式":
+		return ModeCmdSwitchToManual
+
 	case "status", "mode", "查看模式", "当前模式", "模式":
 		return ModeCmdShowMode
 	}
@@ -100,6 +147,12 @@ func detectModeCommand(text string) ModeCommand {
 	}
 	if strings.HasPrefix(lower, "hermes ") || strings.HasPrefix(lower, "/hermes") {
 		return ModeCmdSwitchToHermes
+	}
+	if strings.HasPrefix(lower, "auto ") || strings.HasPrefix(lower, "/auto") {
+		return ModeCmdSwitchToAuto
+	}
+	if strings.HasPrefix(lower, "manual ") || strings.HasPrefix(lower, "/manual") {
+		return ModeCmdSwitchToManual
 	}
 
 	return ModeCmdNone
@@ -121,6 +174,18 @@ func HandleModeSwitch(cmd ModeCommand, currentMode ConversationMode) (string, bo
 			return "当前已在 Hermes 模式。", true
 		}
 		return "已切换到 Hermes 模式。当前无进行中的工作流，请发送需求开始协作。", true
+
+	case ModeCmdSwitchToManual:
+		if currentMode == ModeManual {
+			return "当前已在手动模式。使用 /auto step <指令> 提交任务。", true
+		}
+		return "已切换到手动模式。每次发送一条指令，单步执行。", true
+
+	case ModeCmdSwitchToAuto:
+		if currentMode == ModeAuto {
+			return "当前已在自动模式。队列将持续处理。", true
+		}
+		return "已切换到自动模式。任务队列已激活，Orchestrator 将持续调度。", true
 
 	case ModeCmdShowMode:
 		return "当前模式: " + currentMode.String(), true

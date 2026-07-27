@@ -34,7 +34,7 @@ LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COM
 # Go variables
 GO?=go
 WEB_GO?=$(GO)
-CGO_ENABLED?=0
+CGO_ENABLED:=0
 GO_BUILD_TAGS?=goolm,stdjson
 GOFLAGS?=-v -tags $(GO_BUILD_TAGS)
 GOCACHE?=$(CURDIR)/.cache/go-build
