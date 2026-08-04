@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!-- LHT 长程任务面板 — W5B UI -->
+<div id="lht-app" class="lht-app" style="display:none;">
+  <!-- ====== 任务列表页 ====== -->
+  <div id="lht-list-page" class="lht-page">
+    <div class="lht-list-header">
+      <h2>🦞 长程任务</h2>
+      <button id="lht-new-btn" class="btn btn-primary" onclick="LHT.showNewDialog()">+ 新建任务</button>
+    </div>
+    <div id="lht-task-cards" class="lht-card-grid">
+      <!-- Cards injected by JS -->
+      <div class="lht-loading">加载中...</div>
+    </div>
+    <div id="lht-new-dialog" class="lht-dialog" style="display:none;">
+      <div class="lht-dialog-content">
+        <h3>新建长程任务</h3>
+        <input id="lht-new-title" type="text" placeholder="任务目标描述..." />
+        <div class="lht-dialog-actions">
+          <button class="btn btn-secondary" onclick="LHT.hideNewDialog()">取消</button>
+          <button class="btn btn-primary" onclick="LHT.createGoal()">创建</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 任务详情页 ====== -->
+  <div id="lht-detail-page" class="lht-page" style="display:none;">
+    <!-- 顶部状态条 -->
+    <div class="lht-status-bar">
+      <button class="btn btn-sm btn-ghost" onclick="LHT.backToList()">← 返回列表</button>
+      <div class="lht-status-info">
+        <span id="lht-detail-title" class="lht-detail-title"></span>
+        <span id="lht-detail-state" class="lht-badge"></span>
+        <span id="lht-detail-progress" class="lht-progress-text"></span>
+        <span id="lht-detail-budget" class="lht-budget-text"></span>
+      </div>
+    </div>
+
+    <!-- 三栏布局 -->
+    <div class="lht-detail-layout">
+      <!-- 左侧：步骤列表 -->
+      <aside id="lht-steps-panel" class="lht-panel lht-steps-panel">
+        <h3>📋 执行步骤</h3>
+        <div id="lht-steps-list" class="lht-steps-list">
+          <div class="lht-loading">加载中...</div>
+        </div>
+      </aside>
+
+      <!-- 中间：实时执行流 -->
+      <main id="lht-stream-panel" class="lht-panel lht-stream-panel">
+        <h3>📡 执行流</h3>
+        <div id="lht-stream-log" class="lht-stream-log">
+          <div class="lht-loading">等待执行...</div>
+        </div>
+      </main>
+
+      <!-- 右侧：评审 + 工件 -->
+      <aside id="lht-review-panel" class="lht-panel lht-review-panel">
+        <h3>📝 评审与工件</h3>
+        <div id="lht-review-content" class="lht-review-content">
+          <div class="lht-loading">暂无评审记录</div>
+        </div>
+        <div id="lht-artifacts-section" class="lht-artifacts-section">
+          <h4>📦 工件</h4>
+          <div id="lht-artifacts-list" class="lht-artifacts-list"></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 底部控制区 -->
+    <div id="lht-control-bar" class="lht-control-bar">
+      <div class="lht-control-actions">
+        <button id="lht-btn-pause" class="btn btn-warning" onclick="LHT.doAction('pause')">⏸ 暂停</button>
+        <button id="lht-btn-resume" class="btn btn-success" onclick="LHT.doAction('resume')">▶ 恢复</button>
+        <button id="lht-btn-stop" class="btn btn-danger" onclick="LHT.doAction('stop')">⏹ 终止</button>
+        <button id="lht-btn-approve" class="btn btn-primary" onclick="LHT.doAction('approve')">✅ 批准</button>
+        <button id="lht-btn-reject" class="btn btn-danger-outline" onclick="LHT.doAction('reject')">❌ 打回</button>
+      </div>
+      <div id="lht-reply-section" class="lht-reply-section" style="display:none;">
+        <input id="lht-reply-input" type="text" placeholder="回答引擎提问..." />
+        <button class="btn btn-primary" onclick="LHT.sendReply()">发送</button>
+      </div>
+      <div id="lht-insert-section" class="lht-insert-section">
+        <input id="lht-insert-input" type="text" placeholder="插入新要求..." />
+        <button class="btn btn-secondary" onclick="LHT.insertRequirement()">插入</button>
+      </div>
+    </div>
+  </div>
+</div>
