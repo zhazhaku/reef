@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -311,6 +312,18 @@ func (e *Engine) Reply(gate string, goalID string, action string, content string
 	}
 }
 
+// Shutdown cancels all running task goroutines and cleans up.
+// It is idempotent — multiple calls are safe and will not panic.
+// After shutdown, tasks will not accept new commands/replies;
+// already-completed tasks are unaffected.
+func (e *Engine) Shutdown() {
+	e.tasks.Range(func(key, value any) bool {
+		task := value.(*Task)
+		task.cancel()
+		return true
+	})
+}
+
 // ===================== Task.run — State Machine Loop =====================
 
 func (t *Task) run() {
@@ -328,6 +341,8 @@ func (t *Task) run() {
 				return // task terminated
 			}
 			continue
+		case <-t.ctx.Done():
+			return // shutdown requested
 		default:
 		}
 
@@ -338,7 +353,15 @@ func (t *Task) run() {
 		switch state {
 		case StateGrounding:
 			t.doGrounding()
-			t.transitionTo(StatePlanning)
+			// Only transition to PLANNING if still in GROUNDING (may have escalated).
+			t.mu.Lock()
+			if t.goal.State == StateGrounding {
+				t.goal.State = StatePlanning
+				t.mu.Unlock()
+				t.persist()
+			} else {
+				t.mu.Unlock()
+			}
 
 		case StatePlanning:
 			t.doPlanning()
@@ -465,42 +488,74 @@ func (t *Task) handleCommand(cmd string, replanCount, finalRejectCount *int) boo
 // ===================== State Handlers =====================
 
 func (t *Task) doGrounding() {
+	// NOTE: We intentionally do NOT reuse grounding.GroundingSession here.
+	// GroundingSession uses a hard-coded MaxGroundingRounds const (10),
+	// while the engine supports per-instance Config.MaxGroundingRounds.
+	// Additionally, GroundingSession manages per-question state with
+	// ProcessAnswer/NextQuestion/HasUnresolvedQuestions patterns that
+	// are incompatible with the engine's channel-based gate design.
+	// The inline groundRounds counter + cfg.MaxGroundingRounds achieves
+	// the same escalation behaviour without a larger refactor.
 	questions := GenerateQuestions(t.goal.Description)
-	for _, q := range questions {
-		// Notify user with the question.
-		if t.engine.notifier != nil {
-			t.engine.notifier.Send(t.channel, t.chatID,
-				fmt.Sprintf("[GROUNDING] %s\n(%s) 请回答:", q.Question, q.Category))
-		}
-
-		// Wait for user answer or command.
-		for {
-			select {
-			case reply := <-t.groundCh:
-				// Accept any reply as an answer.
-				_ = reply
-				goto nextQuestion
-
-			case cmd := <-t.cmdCh:
-				replanCount := 0
-				finalRejectCount := 0
-				if t.handleCommand(cmd, &replanCount, &finalRejectCount) {
-					return // terminated
-				}
-				// If paused/escalated, re-check state.
-				t.mu.Lock()
-				s := t.goal.State
-				t.mu.Unlock()
-				if s == StatePaused || s == StateEscalated || s == StateAborted {
-					return
-				}
-				// Otherwise, continue waiting for answer.
-			}
-		}
-	nextQuestion:
+	groundRounds := 0
+	maxRounds := t.engine.cfg.MaxGroundingRounds
+	if maxRounds <= 0 {
+		maxRounds = 10
 	}
 
-	// All questions answered.
+	// Loop for re-grounding rounds (future: re-ask when answers insufficient).
+	for {
+		// Ask all questions in this round.
+		for _, q := range questions {
+			// Notify user with the question.
+			if t.engine.notifier != nil {
+				t.engine.notifier.Send(t.channel, t.chatID,
+					fmt.Sprintf("[GROUNDING] %s\n(%s) 请回答:", q.Question, q.Category))
+			}
+
+			// Wait for user answer or command.
+			for {
+				select {
+				case reply := <-t.groundCh:
+					_ = reply
+					goto nextQuestion
+
+				case <-t.ctx.Done():
+					return
+
+				case cmd := <-t.cmdCh:
+					replanCount := 0
+					finalRejectCount := 0
+					if t.handleCommand(cmd, &replanCount, &finalRejectCount) {
+						return // terminated
+					}
+					t.mu.Lock()
+					s := t.goal.State
+					t.mu.Unlock()
+					if s == StatePaused || s == StateEscalated || s == StateAborted {
+						return
+					}
+				}
+			}
+		nextQuestion:
+		}
+
+		// Full round completed — count it.
+		groundRounds++
+		if groundRounds >= maxRounds {
+			if t.engine.notifier != nil {
+				t.engine.notifier.Send(t.channel, t.chatID,
+					fmt.Sprintf("[GROUNDING] 问答轮次已达上限 (%d)，升级求助。", maxRounds))
+			}
+			t.transitionToEscalated()
+			return
+		}
+
+		// Answers accepted — proceed to planning.
+		break
+	}
+
+	// Normal path: questions answered, proceed to planning.
 	if t.engine.notifier != nil {
 		t.engine.notifier.Send(t.channel, t.chatID,
 			"[GROUNDING] 对齐完成，进入规划阶段...")
@@ -511,6 +566,12 @@ func (t *Task) doPlanning() {
 	// Simulate planning work.
 	time.Sleep(100 * time.Millisecond)
 
+	// Use existing PlanVersion if re-planning (insert/reject), otherwise start at "1".
+	planVersion := t.goal.PlanVersion
+	if planVersion == "" || planVersion == "0" {
+		planVersion = "1"
+	}
+
 	// Classify and create a plan.
 	category := ClassifyGoal(t.goal.Description)
 	route := RouteForCategory(category)
@@ -518,7 +579,7 @@ func (t *Task) doPlanning() {
 
 	plan := &Plan{
 		GoalID:       t.goal.GoalID,
-		PlanVersion:  "1",
+		PlanVersion:  planVersion,
 		Tasks: []TaskNode{
 			{
 				TaskID:      "task-1",
@@ -554,6 +615,8 @@ func (t *Task) doWaitApproval(replanCount int) int {
 
 	for {
 		select {
+		case <-t.ctx.Done():
+			return replanCount
 		case reply := <-t.planCh:
 			switch reply.action {
 			case "approve":
@@ -578,6 +641,27 @@ func (t *Task) doWaitApproval(replanCount int) int {
 					t.engine.notifier.Send(t.channel, t.chatID,
 						fmt.Sprintf("[WAIT_APPROVAL] 计划被打回（%d/%d），重新规划...",
 							replanCount, t.engine.cfg.MaxReplanRounds))
+				}
+				t.transitionTo(StatePlanning)
+				return replanCount
+
+			case "insert":
+				// Full replan: insert forces a complete re-planning phase.
+				// Clear existing plan, bump PlanVersion, go back to PLANNING
+				// so doPlanning() regenerates with the new requirement included.
+				t.mu.Lock()
+				ver, err := strconv.Atoi(t.goal.PlanVersion)
+				if err != nil || ver < 1 {
+					ver = 1
+				}
+				ver++
+				t.goal.PlanVersion = fmt.Sprintf("%d", ver)
+				t.plan = nil
+				t.mu.Unlock()
+				if t.engine.notifier != nil {
+					t.engine.notifier.Send(t.channel, t.chatID,
+						fmt.Sprintf("[WAIT_APPROVAL] 已插入新需求「%s」，开始重新规划（plan v%s）...",
+							reply.content, t.goal.PlanVersion))
 				}
 				t.transitionTo(StatePlanning)
 				return replanCount
@@ -635,6 +719,8 @@ func (t *Task) doFinalApproval(rejectCount int) int {
 
 	for {
 		select {
+		case <-t.ctx.Done():
+			return rejectCount
 		case reply := <-t.finalCh:
 			switch reply.action {
 			case "approve":
@@ -687,6 +773,8 @@ func (t *Task) doPaused() bool {
 
 	for {
 		select {
+		case <-t.ctx.Done():
+			return false
 		case cmd := <-t.cmdCh:
 			switch cmd {
 			case "resume":
@@ -725,6 +813,8 @@ func (t *Task) doEscalated() bool {
 
 	for {
 		select {
+		case <-t.ctx.Done():
+			return false
 		case cmd := <-t.cmdCh:
 			switch cmd {
 			case "resume":

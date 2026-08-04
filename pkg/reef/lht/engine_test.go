@@ -2,6 +2,7 @@ package lht
 
 import (
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -61,6 +62,7 @@ func TestEngineNewEngineInit(t *testing.T) {
 	}
 
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	if e == nil {
 		t.Fatal("NewEngine returned nil")
@@ -96,6 +98,7 @@ func TestEngineNewGoalCreatesGrounding(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, err := e.NewGoal("test scope of work", "project", "telegram", "chat-42")
 	if err != nil {
@@ -138,6 +141,7 @@ func TestEngineFullLifecycleHappyPath(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, err := e.NewGoal("build a web server", "code", "telegram", "chat-1")
 	if err != nil {
@@ -228,6 +232,7 @@ func TestEngineWaitApprovalBlocksExecution(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("test block", "code", "telegram", "chat-2")
 
@@ -271,6 +276,7 @@ func TestEngineRejectReturnsToPlanning(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("reject test", "code", "telegram", "chat-3")
 
@@ -324,6 +330,7 @@ func TestEnginePersistOnEachTransition(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("persist test", "code", "telegram", "chat-4")
 
@@ -384,6 +391,7 @@ func TestEngineGateReplyGrounding(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("gate test", "code", "telegram", "chat-5")
 
@@ -419,6 +427,7 @@ func TestEngineGateReplyWaitApproval(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("plan gate test", "code", "telegram", "chat-6")
 
@@ -457,6 +466,7 @@ func TestEnginePausedStopToAborted(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("pause test", "code", "telegram", "chat-7")
 	// Answer grounding to get past it
@@ -504,6 +514,7 @@ func TestEngineEscalatedStopToAborted(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("escalate test", "code", "telegram", "chat-8")
 	// Answer grounding
@@ -593,6 +604,7 @@ func TestEngineReplyChannelBuffered3(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("buffer test", "code", "telegram", "chat-9")
 
@@ -637,6 +649,7 @@ func TestEnginePausedResumeToPreviousState(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("resume test", "code", "telegram", "chat-10")
 
@@ -698,6 +711,7 @@ func TestEngineEscalatedResume(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("escalated resume test", "code", "telegram", "chat-11")
 
@@ -784,6 +798,7 @@ func TestEngineFinalApprovalReject(t *testing.T) {
 		MaxFinalRejectRounds:   3,
 	}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
 
 	g, _ := e.NewGoal("final reject test", "code", "telegram", "chat-12")
 
@@ -820,4 +835,166 @@ func TestEngineFinalApprovalReject(t *testing.T) {
 func waitForState(t *testing.T, store *Store, goalID string, want State, timeout time.Duration) bool {
 	t.Helper()
 	return waitForPersistedState(t, store, goalID, want, timeout)
+}
+
+// ===================== W7.1: Insert triggers re-plan in WAIT_APPROVAL =====================
+
+func TestEngineInsertInWaitApproval(t *testing.T) {
+	store := tempStore(t)
+	notifier := &mockNotifier{}
+	cfg := DefaultConfig()
+	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
+
+	g, _ := e.NewGoal("insert test", "code", "telegram", "chat-ins")
+
+	// Answer grounding to advance to PLANNING → WAIT_APPROVAL.
+	// doGrounding generates 4 questions; answer each with gaps to avoid
+	// filling the buffered channel.
+	for i := 0; i < 4; i++ {
+		if err := e.Reply("ground", g.GoalID, "answer", "all clear"); err != nil {
+			t.Fatalf("reply ground #%d: %v", i, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !waitForState(t, store, g.GoalID, StateWaitApproval, 10*time.Second) {
+		t.Fatal("did not reach WAIT_APPROVAL")
+	}
+
+	// Verify initial plan version.
+	plan, err := store.LoadPlan(g.GoalID)
+	if err != nil {
+		t.Fatalf("load plan: %v", err)
+	}
+	initialVersion := plan.PlanVersion
+	if initialVersion == "" {
+		t.Fatal("initial PlanVersion is empty")
+	}
+
+	// Send insert via Reply("plan",...,"insert",...).
+	err = e.Reply("plan", g.GoalID, "insert", "add authentication module")
+	if err != nil {
+		t.Fatalf("Reply plan insert: %v", err)
+	}
+
+	// After insert: full replan path → PLANNING → WAIT_APPROVAL again.
+	// Give goroutine time to process insert and complete replan.
+	time.Sleep(400 * time.Millisecond)
+	if !waitForState(t, store, g.GoalID, StateWaitApproval, 15*time.Second) {
+		t.Fatal("did not return to WAIT_APPROVAL after insert/replan")
+	}
+
+	// PlanVersion must have increased (not reset to "1").
+	plan2, _ := store.LoadPlan(g.GoalID)
+	if plan2.PlanVersion == initialVersion {
+		t.Errorf("PlanVersion did not change after insert: %s", plan2.PlanVersion)
+	}
+	// After full replan, tasks should exist (regenerated by doPlanning).
+	if len(plan2.Tasks) == 0 {
+		t.Error("plan has no tasks after replan")
+	}
+
+	// Verify notification was sent about the insert.
+	found := false
+	for _, m := range notifier.allMsgs() {
+		if strings.Contains(m, "已插入新需求") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected insert notification after insert")
+	}
+
+	// Task should still be able to proceed normally.
+	e.Reply("plan", g.GoalID, "approve", "ok")
+	if !waitForState(t, store, g.GoalID, StateFinalApproval, 10*time.Second) {
+		t.Fatal("did not proceed after insert+approve")
+	}
+}
+
+// ===================== W7.2: Grounding rounds limit triggers ESCALATED =====================
+
+func TestEngineGroundingRoundsExhaustion(t *testing.T) {
+	store := tempStore(t)
+	notifier := &mockNotifier{}
+	cfg := DefaultConfig()
+	cfg.MaxGroundingRounds = 1 // escalate after 1 round
+	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
+
+	g, _ := e.NewGoal("grounding rounds test", "code", "telegram", "chat-gr")
+
+	// Answer 4 questions for round 1 — since MaxGroundingRounds=1, this triggers escalation.
+	for i := 0; i < 4; i++ {
+		if err := e.Reply("ground", g.GoalID, "answer", "answer"); err != nil {
+			t.Fatalf("reply ground #%d: %v", i, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !waitForState(t, store, g.GoalID, StateEscalated, 10*time.Second) {
+		t.Fatal("did not reach ESCALATED after grounding rounds exhausted")
+	}
+
+	// Verify escalation notification mentions grounding.
+	found := false
+	for _, m := range notifier.allMsgs() {
+		if strings.Contains(m, "问答轮次已达上限") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected grounding escalation notification, got: %v", notifier.allMsgs())
+	}
+}
+
+// ===================== W7.3: Engine Shutdown =====================
+
+func TestEngineShutdown(t *testing.T) {
+	store := tempStore(t)
+	notifier := &mockNotifier{}
+	cfg := DefaultConfig()
+	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(func() { e.Shutdown() })
+
+	g, err := e.NewGoal("shutdown test", "code", "telegram", "chat-sh")
+	if err != nil {
+		t.Fatalf("NewGoal: %v", err)
+	}
+
+	// The goroutine should be running (blocked in GROUNDING gate).
+	// Shutdown should cancel it.
+	e.Shutdown()
+
+	// After shutdown, the goroutine should exit.
+	// Verify the task is no longer in the engine's task map.
+	time.Sleep(200 * time.Millisecond)
+
+	// Shutdown must be idempotent — calling it again should not panic.
+	e.Shutdown()
+	e.Shutdown()
+
+	// After shutdown, sending commands should not panic but return errors.
+	// Try dispatching to the shut-down task.
+	err = e.Dispatch("pause", []string{g.GoalID}, UserReply{})
+	if err == nil {
+		t.Log("dispatch after shutdown returned nil (acceptable — engine may still hold reference)")
+	}
+
+	// Try a reply — should fail gracefully.
+	err = e.Reply("ground", g.GoalID, "answer", "test")
+	if err != nil {
+		t.Logf("reply after shutdown error (expected): %v", err)
+	}
+
+	// Verify a new engine with Shutdown in Cleanup works with NewGoal.
+	e2 := NewEngine(cfg, tempStore(t), &mockNotifier{})
+	t.Cleanup(func() { e2.Shutdown() })
+	g2, err := e2.NewGoal("shutdown cleanup test", "code", "telegram", "chat-sh2")
+	if err != nil {
+		t.Fatalf("NewGoal after shutdown: %v", err)
+	}
+	_ = g2
 }

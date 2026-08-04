@@ -123,6 +123,7 @@ func TestE2EFullLifecycleHappyPath(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, err := e.NewGoal("build a REST API server", "code", "telegram", "chat-1")
 	if err != nil {
@@ -205,6 +206,7 @@ func TestE2EPausedToAborted(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("pause abort test", "code", "telegram", "chat-2")
 	goalID := g.GoalID
@@ -249,6 +251,7 @@ func TestE2EEscalatedToAborted(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("escalated abort test", "code", "telegram", "chat-3")
 	goalID := g.GoalID
@@ -292,6 +295,7 @@ func TestE2EPauseResumeCycle(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("pause resume test", "code", "telegram", "chat-4")
 	goalID := g.GoalID
@@ -349,6 +353,7 @@ func TestE2EInsertTriggersReplan(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("insert test", "code", "telegram", "chat-5")
 	goalID := g.GoalID
@@ -394,6 +399,7 @@ func TestE2ECrashRecovery(t *testing.T) {
 	// Phase 1: Create a goal, advance to WAIT_APPROVAL.
 	notifier1 := &e2eNotifier{}
 	e1 := NewEngine(e2eConfig(), store, notifier1)
+	t.Cleanup(e1.Shutdown)
 
 	g, _ := e1.NewGoal("crash recovery test", "code", "telegram", "chat-7")
 	goalID := g.GoalID
@@ -411,7 +417,8 @@ func TestE2ECrashRecovery(t *testing.T) {
 	// Phase 2: "Crash" — let e1 fall out of scope.
 	// The goroutine is still running but orphaned.
 	// Create new Engine with same store directory.
-	_ = NewEngine(e2eConfig(), store, &e2eNotifier{})
+	e2 := NewEngine(e2eConfig(), store, &e2eNotifier{})
+	t.Cleanup(e2.Shutdown)
 	_ = basePath // used for verification
 
 	// Phase 3: Verify persisted data is readable.
@@ -583,6 +590,7 @@ func TestE2EFinalRejectExhaustion(t *testing.T) {
 	cfg := e2eTightConfig() // MaxFinalRejectRounds=1
 	notifier := &e2eNotifier{}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("final reject exhaust", "code", "telegram", "chat-8")
 	goalID := g.GoalID
@@ -624,6 +632,7 @@ func TestE2EPlanRejectExhaustion(t *testing.T) {
 	cfg := e2eTightConfig() // MaxReplanRounds=1
 	notifier := &e2eNotifier{}
 	e := NewEngine(cfg, store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	g, _ := e.NewGoal("plan reject exhaust", "code", "telegram", "chat-9")
 	goalID := g.GoalID
@@ -659,6 +668,7 @@ func TestE2EMultiTaskConcurrency(t *testing.T) {
 
 	notifier := &e2eNotifier{}
 	e := NewEngine(e2eConfig(), store, notifier)
+	t.Cleanup(e.Shutdown)
 
 	// Create 3 goals concurrently.
 	var goals []*Goal
